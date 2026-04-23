@@ -31,6 +31,7 @@ from .defaults import build_default_notifications, default_alert_settings
 from .models import SubjectMeta
 from .presenters import difficulty_color, task_payload
 from .storage import load_state, save_state
+from .viewmodels import StudyFlowReadModel
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,13 @@ class StudyFlowBackend(QObject):
         self._nlp_service = NLPService()
         self._bootstrap_nlp_model()
         self._load_json_state()
+        self._view_model = StudyFlowReadModel(
+            db_factory=self._db,
+            today_provider=lambda: self._today,
+            curriculum_filter_provider=lambda: self._curriculum_filter,
+            curriculum_search_provider=lambda: self._curriculum_search,
+            study_minutes_provider=lambda: list(self._study_minutes),
+        )
         self._ensure_database_ready()
         self._refresh_reminder_notifications()
 
@@ -265,81 +273,30 @@ class StudyFlowBackend(QObject):
             train_model(load_training_examples(dataset_path), service=self._nlp_service)
 
     def _subject_meta(self, subject: Subject | None = None, *, name: str = "", color: str = "#64748B") -> SubjectMeta:
-        label = subject.name if subject is not None else name
-        shade = subject.color if subject is not None else color
-        words = [part[:1] for part in label.split() if part]
-        return SubjectMeta(("".join(words)[:2] or "?").upper(), shade or "#64748B")
+        return self._view_model.subject_meta(subject, name=name, color=color)
 
     def _difficulty_label(self, difficulty: DifficultyLevel) -> str:
-        value = difficulty.value if hasattr(difficulty, "value") else difficulty
-        return str(value).capitalize()
+        return self._view_model.difficulty_label(difficulty)
 
     def _progress_for_topic(self, topic: Topic) -> int:
-        return max(0, min(int(round(topic.mastery_score or 0)), 100))
+        return self._view_model.progress_for_topic(topic)
 
     def _confidence_for_topic(self, topic: Topic) -> int:
-        mastery = max(0.0, min(float(topic.mastery_score or 0.0), 100.0))
-        difficulty_penalty = {"easy": 0, "medium": 0.35, "hard": 0.7}.get(str(topic.difficulty).lower(), 0.35)
-        score = round((mastery / 25.0) + 1 - difficulty_penalty)
-        return max(1, min(score, CONFIDENCE_MAX))
+        return self._view_model.confidence_for_topic(topic)
 
     def _scheduled_datetime(self, revision: Revision) -> datetime:
         return revision.due_at
 
     def _serialize_topic(self, topic: Topic) -> dict[str, Any]:
-        meta = self._subject_meta(topic.subject)
-        exam_date_value = topic.exam_date_override or topic.subject.exam_date
-        exam_date = exam_date_value.isoformat() if exam_date_value else ""
-        completion_date = topic.last_reviewed_at.date().isoformat() if topic.status == "completed" and topic.last_reviewed_at else ""
-        return {
-            "id": topic.id,
-            "subjectId": topic.subject_id,
-            "subject": topic.subject.name,
-            "name": topic.name,
-            "difficulty": self._difficulty_label(topic.difficulty),
-            "difficultyColor": difficulty_color(self._difficulty_label(topic.difficulty)),
-            "progress": self._progress_for_topic(topic),
-            "confidence": self._confidence_for_topic(topic),
-            "notes": topic.description or "",
-            "parent_topic_id": None,
-            "exam_date": exam_date,
-            "examDate": exam_date,
-            "completion_date": completion_date,
-            "completionDate": completion_date,
-            "is_completed": topic.status == "completed",
-            "isCompleted": topic.status == "completed",
-            "subjectMeta": {"icon": meta.icon, "color": meta.color},
-        }
+        return self._view_model.serialize_topic(topic)
 
     def _serialize_task(self, revision: Revision) -> dict[str, Any]:
-        scheduled_at = self._scheduled_datetime(revision)
-        topic = revision.topic
-        return {
-            "id": revision.id,
-            "topic_id": topic.id,
-            "topic": topic.name,
-            "subject_id": topic.subject_id,
-            "subject": topic.subject.name,
-            "difficulty": self._difficulty_label(topic.difficulty),
-            "scheduled_at": scheduled_at,
-            "confidence": self._confidence_for_topic(topic),
-            "duration_minutes": topic.estimated_minutes or DIFFICULTY_TO_DURATION[self._difficulty_label(topic.difficulty)],
-            "completed_at": revision.completed_at,
-            "completed": revision.status == "completed",
-        }
+        return self._view_model.serialize_task(revision)
     def _all_topics(self) -> list[dict[str, Any]]:
-        with self._db() as db:
-            stmt = select(Topic).options(joinedload(Topic.subject)).order_by(Topic.created_at, Topic.name)
-            return [self._serialize_topic(topic) for topic in db.scalars(stmt)]
+        return self._view_model.all_topics()
 
     def _all_revisions(self) -> list[Revision]:
-        with self._db() as db:
-            stmt = (
-                select(Revision)
-                .options(joinedload(Revision.topic).joinedload(Topic.subject))
-                .order_by(Revision.due_at, Revision.created_at)
-            )
-            return list(db.scalars(stmt))
+        return self._view_model.all_revisions()
 
     @property
     def _topics(self) -> list[dict[str, Any]]:
@@ -353,20 +310,10 @@ class StudyFlowBackend(QObject):
         return [task for task in self._tasks if not task["completed"]]
 
     def _task_payload(self, task: dict[str, Any]) -> dict[str, Any]:
-        with self._db() as db:
-            subject = db.get(Subject, task["subject_id"])
-            meta = self._subject_meta(subject, name=task["subject"])
-        return task_payload(self._today, meta, task)
+        return self._view_model.task_payload(task)
 
     def _task_bucket(self, task: dict[str, Any]) -> str:
-        if task["completed"]:
-            return "completed"
-        day = task["scheduled_at"].date()
-        if day < self._today:
-            return "overdue"
-        if day == self._today:
-            return "due_today"
-        return "upcoming"
+        return self._view_model.task_bucket(task)
 
     def _compute_urgency_score(self, task: dict[str, Any]) -> int:
         days_delta = (task["scheduled_at"].date() - self._today).days
@@ -378,47 +325,28 @@ class StudyFlowBackend(QObject):
         return difficulty_weight + confidence_penalty + overdue_bonus + due_today_bonus + upcoming_decay
 
     def _dashboard_task_payload(self, task: dict[str, Any]) -> dict[str, Any]:
-        payload = self._task_payload(task)
-        payload["urgencyScore"] = self._compute_urgency_score(task)
-        payload["isCompleted"] = bool(task["completed"])
-        payload["bucket"] = self._task_bucket(task)
-        payload["confidenceLabel"] = f"Confidence {task['confidence']}/{CONFIDENCE_MAX}"
-        return payload
+        return self._view_model.dashboard_task_payload(task)
 
     def _tasks_for_bucket(self, bucket: str) -> list[dict[str, Any]]:
-        items = [task for task in self._tasks if self._task_bucket(task) == bucket]
-        items.sort(key=lambda task: (-self._compute_urgency_score(task), task["scheduled_at"]))
-        return [self._dashboard_task_payload(task) for task in items]
+        return self._view_model.tasks_for_bucket(bucket)
 
     def _filtered_topics(self) -> list[dict[str, Any]]:
-        topics = self._topics
-        if self._curriculum_filter != "All":
-            topics = [topic for topic in topics if topic["difficulty"] == self._curriculum_filter]
-        if self._curriculum_search:
-            needle = self._curriculum_search.lower()
-            topics = [topic for topic in topics if needle in topic["name"].lower() or needle in topic["subject"].lower()]
-        return topics
+        return self._view_model.filtered_topics()
 
     def _subject_groups(self) -> dict[str, list[dict[str, Any]]]:
-        groups: dict[str, list[dict[str, Any]]] = {}
-        for topic in self._topics:
-            groups.setdefault(topic["subject"], []).append(topic)
-        return groups
+        return self._view_model.subject_groups()
 
     def _average_progress(self, topics: list[dict[str, Any]] | None = None) -> float:
-        items = topics if topics is not None else self._topics
-        return round(sum(topic["progress"] for topic in items) / len(items), 1) if items else 0.0
+        return self._view_model.average_progress(topics)
 
     def _average_confidence_pct(self, topics: list[dict[str, Any]] | None = None) -> int:
-        items = topics if topics is not None else self._topics
-        return round(sum(topic["confidence"] for topic in items) / (len(items) * CONFIDENCE_MAX) * 100) if items else 0
+        return self._view_model.average_confidence_pct(topics)
 
     def _weekly_study_minutes(self) -> int:
-        return sum(self._study_minutes[-7:])
+        return self._view_model.weekly_study_minutes()
 
     def _study_trend_values(self, days: int = 14) -> list[int]:
-        values = self._study_minutes[-days:]
-        return [0] * (days - len(values)) + values
+        return self._view_model.study_trend_values(days)
 
     def _topic_tree_node(self, topic: dict[str, Any], lookup: dict[str, dict[str, Any]]) -> dict[str, Any]:
         children = [self._topic_tree_node(candidate, lookup) for candidate in lookup.values() if candidate.get("parent_topic_id") == topic["id"]]

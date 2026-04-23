@@ -24,7 +24,7 @@ def test_subject_service_crud_flow(session) -> None:
     subjects = subject_service.list_subjects()
 
     assert updated.name == "Advanced Mathematics"
-    assert updated.color_tag == "#654321"
+    assert updated.color == "#654321"
     assert [item.id for item in subjects] == [subject.id]
 
 
@@ -35,29 +35,25 @@ def test_topic_service_auto_schedules_first_revision(session) -> None:
     topic = topic_service.create_topic(subject_id=subject.id, name="Magnetism", difficulty=DifficultyLevel.HARD)
     session.commit()
 
-    revisions = session.query(Revision).filter(Revision.topic_id == topic.id).all()
+    revisions = session.query(Revision).filter(Revision.topic_id == topic.id, Revision.status == "open").all()
     assert len(revisions) == 1
-    assert topic.exam_date == date(2026, 4, 11)
-    assert topic.fsrs_due_date == date(2026, 4, 10)
-    assert revisions[0].scheduled_date == date(2026, 4, 9)
+    assert topic.exam_date_override == date(2026, 4, 11)
+    assert revisions[0].due_at.date() == date(2026, 4, 9)
 
 
-def test_topic_tree_and_leaf_traversal(session) -> None:
+def test_topic_tree_and_leaf_traversal_flatten_in_single_user_schema(session) -> None:
     subject_service, topic_service = _build_services(session, date(2026, 4, 9))
     subject = subject_service.create_subject(name="Biology")
 
     root = topic_service.create_topic(subject_id=subject.id, name="Cell Biology", auto_schedule=False)
-    child_a = topic_service.create_topic(subject_id=subject.id, name="Cell Membrane", parent_topic_id=root.id, auto_schedule=False)
-    child_b = topic_service.create_topic(subject_id=subject.id, name="Mitochondria", parent_topic_id=root.id, auto_schedule=False)
-    leaf = topic_service.create_topic(subject_id=subject.id, name="ATP Synthesis", parent_topic_id=child_b.id, auto_schedule=False)
+    child_a = topic_service.create_topic(subject_id=subject.id, name="Cell Membrane", auto_schedule=False)
+    child_b = topic_service.create_topic(subject_id=subject.id, name="Mitochondria", auto_schedule=False)
 
     tree = topic_service.get_topic_tree(subject.id)
     leaves = topic_service.get_leaf_topics(subject.id)
 
-    assert len(tree) == 1
-    assert tree[0].name == "Cell Biology"
-    assert {node.name for node in tree[0].children} == {"Cell Membrane", "Mitochondria"}
-    assert {topic.id for topic in leaves} == {child_a.id, leaf.id}
+    assert {node.name for node in tree} == {"Cell Biology", "Cell Membrane", "Mitochondria"}
+    assert {topic.id for topic in leaves} == {root.id, child_a.id, child_b.id}
 
 
 def test_topic_update_and_delete_flow(session) -> None:
@@ -76,5 +72,6 @@ def test_topic_update_and_delete_flow(session) -> None:
     session.commit()
 
     assert updated.name == "World War I Overview"
-    assert updated.difficulty == DifficultyLevel.EASY
+    assert updated.difficulty == DifficultyLevel.EASY.value
+    assert updated.description == "Focus on timeline"
     assert topic_service.get_topic(topic.id) is None

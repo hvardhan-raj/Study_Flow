@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from db.repositories import RevisionRepository, SessionRepository, TopicRepository
-from models import ConfidenceRating, DifficultyLevel, Revision, Topic
+from models import ConfidenceRating, Revision, Topic
 
 
 def test_topic_and_revision_crud_flow(session) -> None:
@@ -14,7 +14,7 @@ def test_topic_and_revision_crud_flow(session) -> None:
     revision_repo = RevisionRepository(session)
 
     subject = topic_repo.create_subject("Mathematics")
-    topic = topic_repo.create_topic(subject_id=subject.id, name="Calculus Limits", difficulty=DifficultyLevel.HARD)
+    topic = topic_repo.create_topic(subject_id=subject.id, name="Calculus Limits", difficulty="hard")
     revision = revision_repo.create_revision(topic_id=topic.id, scheduled_date=date(2026, 4, 10))
     session.commit()
 
@@ -23,13 +23,13 @@ def test_topic_and_revision_crud_flow(session) -> None:
 
     assert stored_topic is not None
     assert stored_topic.name == "Calculus Limits"
-    assert stored_topic.difficulty == DifficultyLevel.HARD
+    assert stored_topic.difficulty == "hard"
     assert [item.id for item in due_revisions] == [revision.id]
 
 
 def test_foreign_key_constraint_prevents_orphan_topic(session) -> None:
     with pytest.raises(IntegrityError):
-        TopicRepository(session).create_topic(subject_id="missing-subject", name="Impossible Topic")
+        TopicRepository(session).create_topic(subject_id="99999", name="Impossible Topic")
 
 
 def test_cascade_delete_removes_revisions(session) -> None:
@@ -54,8 +54,6 @@ def test_session_repository_tracks_local_study_sessions(session) -> None:
     study_session = session_repo.create_session(
         started_at=datetime(2026, 4, 8, 9, 0, 0),
         ended_at=datetime(2026, 4, 8, 9, 30, 0),
-        topics_attempted=3,
-        topics_completed=2,
     )
     session.commit()
 
@@ -63,7 +61,7 @@ def test_session_repository_tracks_local_study_sessions(session) -> None:
     listed_sessions = session_repo.list_sessions()
 
     assert stored_session is not None
-    assert stored_session.topics_completed == 2
+    assert stored_session.duration_minutes == 30
     assert [item.id for item in listed_sessions] == [study_session.id]
 
 
@@ -80,5 +78,5 @@ def test_revision_completion_updates_rating(session) -> None:
 
     stored_revision = revision_repo.get_revision(revision.id)
     assert stored_revision is not None
-    assert stored_revision.is_completed is True
-    assert stored_revision.confidence_rating == ConfidenceRating.GOOD
+    assert stored_revision.status == "completed"
+    assert stored_revision.rating == ConfidenceRating.GOOD.value

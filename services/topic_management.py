@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -189,13 +189,8 @@ class TopicService:
         days_until_exam = (exam_date - today).days
         if days_until_exam <= 0:
             revision.due_at = revision.due_at.replace(year=today.year, month=today.month, day=today.day)
-            revision.interval_days = 1.0
+            revision.interval_days = 0.0
             return
-
-        desired_interval = max(1, min(int(round(revision.interval_days or 1)), days_until_exam))
-        due_day = today + timedelta(days=desired_interval)
-        revision.due_at = revision.due_at.replace(year=due_day.year, month=due_day.month, day=due_day.day)
-        revision.interval_days = float(desired_interval)
 
     def _require_subject(self, subject_id: int | str) -> Subject:
         subject = self.session.get(Subject, int(subject_id))
