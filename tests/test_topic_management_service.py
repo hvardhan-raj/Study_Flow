@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 
-from db.repositories import create_user
 from models import DifficultyLevel, Revision
 from services import SchedulerService, SubjectService, TopicService
 
@@ -13,18 +12,16 @@ def _build_services(session, today_value: date) -> tuple[SubjectService, TopicSe
 
 
 def test_subject_service_crud_flow(session) -> None:
-    user = create_user(session)
     subject_service, _ = _build_services(session, date(2026, 4, 9))
 
     subject = subject_service.create_subject(
-        user_id=user.id,
         name="Mathematics",
         color_tag="#123456",
         exam_date=date(2026, 6, 1),
         description="STEM core subject",
     )
     updated = subject_service.update_subject(subject.id, name="Advanced Mathematics", color_tag="#654321")
-    subjects = subject_service.list_subjects_for_user(user.id)
+    subjects = subject_service.list_subjects()
 
     assert updated.name == "Advanced Mathematics"
     assert updated.color_tag == "#654321"
@@ -32,15 +29,10 @@ def test_subject_service_crud_flow(session) -> None:
 
 
 def test_topic_service_auto_schedules_first_revision(session) -> None:
-    user = create_user(session)
     subject_service, topic_service = _build_services(session, date(2026, 4, 9))
-    subject = subject_service.create_subject(user_id=user.id, name="Physics", exam_date=date(2026, 4, 11))
+    subject = subject_service.create_subject(name="Physics", exam_date=date(2026, 4, 11))
 
-    topic = topic_service.create_topic(
-        subject_id=subject.id,
-        name="Magnetism",
-        difficulty=DifficultyLevel.HARD,
-    )
+    topic = topic_service.create_topic(subject_id=subject.id, name="Magnetism", difficulty=DifficultyLevel.HARD)
     session.commit()
 
     revisions = session.query(Revision).filter(Revision.topic_id == topic.id).all()
@@ -51,29 +43,13 @@ def test_topic_service_auto_schedules_first_revision(session) -> None:
 
 
 def test_topic_tree_and_leaf_traversal(session) -> None:
-    user = create_user(session)
     subject_service, topic_service = _build_services(session, date(2026, 4, 9))
-    subject = subject_service.create_subject(user_id=user.id, name="Biology")
+    subject = subject_service.create_subject(name="Biology")
 
     root = topic_service.create_topic(subject_id=subject.id, name="Cell Biology", auto_schedule=False)
-    child_a = topic_service.create_topic(
-        subject_id=subject.id,
-        name="Cell Membrane",
-        parent_topic_id=root.id,
-        auto_schedule=False,
-    )
-    child_b = topic_service.create_topic(
-        subject_id=subject.id,
-        name="Mitochondria",
-        parent_topic_id=root.id,
-        auto_schedule=False,
-    )
-    leaf = topic_service.create_topic(
-        subject_id=subject.id,
-        name="ATP Synthesis",
-        parent_topic_id=child_b.id,
-        auto_schedule=False,
-    )
+    child_a = topic_service.create_topic(subject_id=subject.id, name="Cell Membrane", parent_topic_id=root.id, auto_schedule=False)
+    child_b = topic_service.create_topic(subject_id=subject.id, name="Mitochondria", parent_topic_id=root.id, auto_schedule=False)
+    leaf = topic_service.create_topic(subject_id=subject.id, name="ATP Synthesis", parent_topic_id=child_b.id, auto_schedule=False)
 
     tree = topic_service.get_topic_tree(subject.id)
     leaves = topic_service.get_leaf_topics(subject.id)
@@ -85,9 +61,8 @@ def test_topic_tree_and_leaf_traversal(session) -> None:
 
 
 def test_topic_update_and_delete_flow(session) -> None:
-    user = create_user(session)
     subject_service, topic_service = _build_services(session, date(2026, 4, 9))
-    subject = subject_service.create_subject(user_id=user.id, name="History")
+    subject = subject_service.create_subject(name="History")
     topic = topic_service.create_topic(subject_id=subject.id, name="World War I", auto_schedule=False)
 
     updated = topic_service.update_topic(

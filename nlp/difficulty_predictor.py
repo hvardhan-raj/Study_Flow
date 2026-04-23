@@ -95,14 +95,12 @@ class NLPService:
     def log_feedback(
         self,
         *,
-        user_id: str,
         topic_name: str,
         predicted_difficulty: DifficultyLevel,
         predicted_confidence: float,
         actual_difficulty: DifficultyLevel,
     ) -> NlpFeedback:
         return NlpFeedback(
-            user_id=user_id,
             topic_name_raw=topic_name,
             predicted_difficulty=predicted_difficulty,
             predicted_confidence=predicted_confidence,

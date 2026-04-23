@@ -86,14 +86,6 @@
       "time": "15:04"
     }
   ],
-  "sync_settings": {
-    "enabled": false,
-    "supabase_url": "",
-    "supabase_anon_key": "",
-    "device_id": "device-fefcc67478",
-    "last_sync_at": ""
-  },
-  "sync_history": [],
   "suggestion_dismissed": true,
   "study_minutes": [
     35,
@@ -110,8 +102,6 @@
       "color": "#8B5CF6",
       "read": true,
       "timestamp": "2026-04-21T22:22:28.266186",
-      "sync_status": "pending",
-      "updated_at": "2026-04-21T22:22:28.266186",
       "time": "Now"
     }
   ]

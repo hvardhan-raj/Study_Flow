@@ -14,14 +14,13 @@ from sqlalchemy.orm import Session, joinedload
 
 from db.session import init_database, session_scope
 from llm import AssistantContext, LLMService
-from models import ConfidenceRating, DifficultyLevel, Revision, Subject, Topic, UserProfile
+from models import ConfidenceRating, DifficultyLevel, Revision, Subject, Topic
 from nlp import NLPService, load_training_examples, train_model
 from services import (
     DesktopNotifier,
     ReminderPreferences,
     SchedulerService,
     SubjectService,
-    SyncService,
     TopicService,
     build_exam_warnings,
     build_morning_summary,
@@ -47,11 +46,8 @@ ALERT_SETTING_META = {
     "session_reminders": ("Session Reminders", "Remind before planned study blocks.", "#F59E0B"),
     "streak_reminders": ("Streak Reminders", "Nudge consistency when activity drops.", "#14B8A6"),
 }
-DEFAULT_USER_NAME = "StudyFlow User"
-
-
-def seed_defaults(db: Session, user_id: str) -> None:
-    if db.scalar(select(Subject.id).limit(1)) is not None:
+def seed_defaults(db: Session) -> None:
+    if db.query(Subject.id).first() is not None:
         return
 
     subject_service = SubjectService(db)
@@ -62,7 +58,7 @@ def seed_defaults(db: Session, user_id: str) -> None:
         ("History", "#F59E0B", [("Roman Empire", DifficultyLevel.MEDIUM, 71), ("World War I", DifficultyLevel.HARD, 47)]),
     ]
     for subject_name, color, topics in seeds:
-        subject = subject_service.create_subject(user_id=user_id, name=subject_name, color_tag=color)
+        subject = subject_service.create_subject(name=subject_name, color_tag=color)
         for topic_name, difficulty, progress in topics:
             topic = topic_service.create_topic(subject_id=subject.id, name=topic_name, difficulty=difficulty)
             topic.progress = progress
@@ -90,19 +86,13 @@ class StudyFlowBackend(QObject):
         self._load_json_state()
         self._ensure_database_ready()
         self._refresh_reminder_notifications()
-        self._sync_service = SyncService(self._sync_config())
 
     def _db(self):
         return session_scope()
 
     def _ensure_database_ready(self) -> None:
         with self._db() as db:
-            user = db.scalar(select(UserProfile))
-            if user is None:
-                user = UserProfile(display_name=DEFAULT_USER_NAME, avatar_initials="SF")
-                db.add(user)
-                db.flush()
-            seed_defaults(db, user.id)
+            seed_defaults(db)
 
     def _load_json_state(self) -> None:
         try:
@@ -114,8 +104,6 @@ class StudyFlowBackend(QObject):
                 "alert_settings": {},
                 "reminder_preferences": {},
                 "assistant_messages": [],
-                "sync_settings": {},
-                "sync_history": [],
                 "suggestion_dismissed": False,
                 "study_minutes": [],
                 "notifications": build_default_notifications(),
@@ -126,8 +114,6 @@ class StudyFlowBackend(QObject):
         self._reminder_preferences = self._normalize_reminder_preferences(state.get("reminder_preferences", {}))
         assistant_messages = state.get("assistant_messages") or self._default_assistant_messages()
         self._assistant_messages = [self._normalize_assistant_message(message) for message in assistant_messages]
-        self._sync_settings = self._normalize_sync_settings(state.get("sync_settings", {}))
-        self._sync_history = [self._normalize_sync_history(item) for item in state.get("sync_history", [])]
         self._suggestion_dismissed = bool(state.get("suggestion_dismissed", False))
         self._study_minutes = list(state.get("study_minutes", []))
         self._notifications = [
@@ -143,8 +129,6 @@ class StudyFlowBackend(QObject):
                 "alert_settings": self._alert_settings,
                 "reminder_preferences": self._reminder_preferences,
                 "assistant_messages": self._assistant_messages,
-                "sync_settings": self._sync_settings,
-                "sync_history": self._sync_history,
                 "suggestion_dismissed": self._suggestion_dismissed,
                 "study_minutes": self._study_minutes,
                 "notifications": self._notifications,
@@ -207,29 +191,6 @@ class StudyFlowBackend(QObject):
             payload["minimum_due_for_alert"] = 1
         if not isinstance(payload["notification_time"], str) or ":" not in payload["notification_time"]:
             payload["notification_time"] = "08:00"
-        return payload
-
-    def _normalize_sync_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
-        payload = {
-            "enabled": False,
-            "device_id": "desktop-offline",
-            "last_sync_at": "",
-        }
-        if isinstance(settings, dict):
-            payload.update(settings)
-        payload["enabled"] = bool(payload["enabled"])
-        return payload
-
-    def _normalize_sync_history(self, item: dict[str, Any]) -> dict[str, Any]:
-        payload = dict(item)
-        history = getattr(self, "_sync_history", [])
-        payload.setdefault("id", f"sync-{len(history) + 1}")
-        payload.setdefault("status", "local_only")
-        payload.setdefault("message", "")
-        payload.setdefault("pushed", 0)
-        payload.setdefault("pulled", 0)
-        payload.setdefault("conflicts", 0)
-        payload.setdefault("created_at", datetime.now().isoformat())
         return payload
 
     def _notification_timestamp(self, index: int) -> datetime:
@@ -465,26 +426,6 @@ class StudyFlowBackend(QObject):
             "isCompleted": topic["isCompleted"],
             "children": children,
         }
-
-    def _sync_config(self):
-        from services import SyncConfig
-        return SyncConfig(
-            enabled=False,
-            device_id=str(self._sync_settings.get("device_id", "desktop-offline")),
-        )
-
-    def _sync_state(self) -> dict[str, Any]:
-        return {
-            "settings": self._settings,
-            "alert_settings": self._alert_settings,
-            "reminder_preferences": self._reminder_preferences,
-            "topics": self._topics,
-            "tasks": self._tasks,
-            "notifications": self._notifications,
-        }
-
-    def _mark_all_local_records_pending(self) -> None:
-        logger.info("Sync is disabled for the offline desktop app; no records were marked pending.")
 
     def _upsert_notification(self, notification_id: str, title: str, body: str, icon: str, color: str, *, read: bool = False) -> None:
         existing = next((item for item in self._notifications if item["id"] == notification_id), None)
@@ -813,24 +754,6 @@ class StudyFlowBackend(QObject):
         context = self._assistant_context()
         return {"dueToday": len(context.due_today), "overdue": len(context.overdue), "weakSubjects": len([item for item in context.weak_subjects if item.get("risk") != "Low"]), "nextTopic": context.overdue[0]["name"] if context.overdue else (context.due_today[0]["name"] if context.due_today else "No due topics")}
 
-    @Property("QVariantMap", notify=stateChanged)
-    def syncStatus(self) -> dict[str, Any]:
-        self._sync_service = SyncService(self._sync_config())
-        return self._sync_service.status(self._sync_state())
-
-    @Property("QVariantMap", notify=stateChanged)
-    def syncSettings(self) -> dict[str, Any]:
-        return {
-            "enabled": False,
-            "deviceId": self._sync_settings.get("device_id", "desktop-offline"),
-            "lastSyncAt": self._sync_settings.get("last_sync_at") or "Never",
-            "message": "Sync is not implemented for this offline desktop app.",
-        }
-
-    @Property("QVariantList", notify=stateChanged)
-    def syncHistory(self) -> list[dict[str, Any]]:
-        return sorted(self._sync_history, key=lambda item: item["created_at"], reverse=True)[:10]
-
     @Property("QVariantList", notify=stateChanged)
     def settingsColumns(self) -> list[dict[str, Any]]:
         return [
@@ -843,8 +766,7 @@ class StudyFlowBackend(QObject):
         if not clean_name:
             return
         with self._db() as db:
-            user = db.scalar(select(UserProfile))
-            SubjectService(db).create_subject(user_id=user.id, name=clean_name, color_tag=color.strip() or "#3B82F6")
+            SubjectService(db).create_subject(name=clean_name, color_tag=color.strip() or "#3B82F6")
         self._emit()
 
     @Slot(str, str)
@@ -1172,25 +1094,6 @@ class StudyFlowBackend(QObject):
         self._refresh_reminder_notifications()
         self._emit()
 
-    @Slot()
-    def toggleCloudSync(self) -> None:
-        logger.info("Sync toggle ignored because sync is not implemented in offline mode.")
-
-    @Slot(str, str)
-    def updateSyncSetting(self, key: str, value: str) -> None:
-        logger.info("Ignored sync setting update in offline mode", extra={"key": key, "value": value})
-
-    @Slot(result="QVariantMap")
-    def forceFullSync(self) -> dict[str, Any]:
-        self._mark_all_local_records_pending()
-        result = self._sync_service.sync(self._sync_state())
-        history_item = self._normalize_sync_history({"status": result.status, "message": result.message, "pushed": 0, "pulled": 0, "conflicts": 0, "created_at": datetime.now().isoformat()})
-        self._sync_history.insert(0, history_item)
-        self._sync_history = self._sync_history[:20]
-        self._save()
-        self._emit()
-        return history_item
-
     @Slot(result=str)
     def exportLearningReport(self) -> str:
         export_dir = Path(__file__).resolve().parent.parent / "data"
@@ -1199,4 +1102,3 @@ class StudyFlowBackend(QObject):
         report_path.write_text("StudyFlow Learning Report\n", encoding="utf-8")
         self._add_notification("Learning Report Exported", f"Saved analytics report to {report_path.name}.", "R", "#8B5CF6")
         return str(report_path)
-

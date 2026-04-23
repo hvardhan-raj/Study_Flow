@@ -48,18 +48,15 @@ def test_low_confidence_returns_none(tmp_path) -> None:
 
 
 def test_feedback_conversion_uses_actual_difficulty() -> None:
-    user_id = "user-1"
     service = NLPService(model_path=Path("unused.joblib"))
     feedback_items = [
         service.log_feedback(
-            user_id=user_id,
             topic_name="Laplace transforms",
             predicted_difficulty=DifficultyLevel.MEDIUM,
             predicted_confidence=0.52,
             actual_difficulty=DifficultyLevel.HARD,
         ),
         service.log_feedback(
-            user_id=user_id,
             topic_name="Fractions",
             predicted_difficulty=DifficultyLevel.EASY,
             predicted_confidence=0.91,

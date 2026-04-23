@@ -1,4 +1,4 @@
-from .repositories import RevisionRepository, SessionRepository, TopicRepository, create_user
+from .repositories import RevisionRepository, SessionRepository, TopicRepository
 from .session import build_sqlite_url, create_session_factory, create_sqlite_engine, get_session
 
 __all__ = [
@@ -8,6 +8,5 @@ __all__ = [
     "build_sqlite_url",
     "create_session_factory",
     "create_sqlite_engine",
-    "create_user",
     "get_session",
 ]

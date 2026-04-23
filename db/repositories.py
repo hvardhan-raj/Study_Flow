@@ -5,23 +5,27 @@ from datetime import UTC, date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from models import (
-    ConfidenceRating,
-    DifficultyLevel,
-    Revision,
-    StudySession,
-    Subject,
-    Topic,
-    UserProfile,
-)
+from models import ConfidenceRating, DifficultyLevel, Revision, StudySession, Subject, Topic
 
 
 class TopicRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def create_subject(self, user_id: str, name: str, color_tag: str = "#7F77DD") -> Subject:
-        subject = Subject(user_id=user_id, name=name, color_tag=color_tag)
+    def create_subject(
+        self,
+        name: str,
+        color_tag: str = "#7F77DD",
+        *,
+        exam_date: date | None = None,
+        description: str | None = None,
+    ) -> Subject:
+        subject = Subject(
+            name=name,
+            color_tag=color_tag,
+            exam_date=exam_date,
+            description=description,
+        )
         self.session.add(subject)
         self.session.flush()
         return subject
@@ -51,6 +55,10 @@ class TopicRepository:
 
     def list_topics_by_subject(self, subject_id: str) -> list[Topic]:
         stmt = select(Topic).where(Topic.subject_id == subject_id).order_by(Topic.sort_order, Topic.name)
+        return list(self.session.scalars(stmt))
+
+    def list_subjects(self) -> list[Subject]:
+        stmt = select(Subject).order_by(Subject.name)
         return list(self.session.scalars(stmt))
 
     def delete_topic(self, topic_id: str) -> None:
@@ -86,7 +94,11 @@ class RevisionRepository:
         return self.session.get(Revision, revision_id)
 
     def list_due_revisions(self, due_on_or_before: date) -> list[Revision]:
-        stmt = select(Revision).where(Revision.scheduled_date <= due_on_or_before).order_by(Revision.scheduled_date)
+        stmt = (
+            select(Revision)
+            .where(Revision.is_completed.is_(False), Revision.scheduled_date <= due_on_or_before)
+            .order_by(Revision.scheduled_date)
+        )
         return list(self.session.scalars(stmt))
 
     def mark_completed(
@@ -114,14 +126,14 @@ class SessionRepository:
     def create_session(
         self,
         *,
-        user_id: str,
         started_at: datetime,
         ended_at: datetime | None = None,
+        topic_id: str | None = None,
         topics_attempted: int = 0,
         topics_completed: int = 0,
     ) -> StudySession:
         study_session = StudySession(
-            user_id=user_id,
+            topic_id=topic_id,
             started_at=started_at,
             ended_at=ended_at,
             topics_attempted=topics_attempted,
@@ -134,13 +146,6 @@ class SessionRepository:
     def get_session(self, session_id: str) -> StudySession | None:
         return self.session.get(StudySession, session_id)
 
-    def list_sessions_for_user(self, user_id: str) -> list[StudySession]:
-        stmt = select(StudySession).where(StudySession.user_id == user_id).order_by(StudySession.started_at)
+    def list_sessions(self) -> list[StudySession]:
+        stmt = select(StudySession).order_by(StudySession.started_at)
         return list(self.session.scalars(stmt))
-
-
-def create_user(session: Session, display_name: str = "Test User") -> UserProfile:
-    user = UserProfile(display_name=display_name)
-    session.add(user)
-    session.flush()
-    return user

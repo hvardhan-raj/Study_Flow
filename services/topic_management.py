@@ -25,14 +25,12 @@ class SubjectService:
     def create_subject(
         self,
         *,
-        user_id: str,
         name: str,
         color_tag: str = "#7F77DD",
         exam_date: date | None = None,
         description: str | None = None,
     ) -> Subject:
         subject = Subject(
-            user_id=user_id,
             name=name,
             color_tag=color_tag,
             exam_date=exam_date,
@@ -45,8 +43,8 @@ class SubjectService:
     def get_subject(self, subject_id: str) -> Subject | None:
         return self.session.get(Subject, subject_id)
 
-    def list_subjects_for_user(self, user_id: str) -> list[Subject]:
-        stmt = select(Subject).where(Subject.user_id == user_id).order_by(Subject.name)
+    def list_subjects(self) -> list[Subject]:
+        stmt = select(Subject).order_by(Subject.name)
         return list(self.session.scalars(stmt))
 
     def update_subject(
@@ -224,11 +222,13 @@ class TopicService:
             topic.fsrs_due_date = today
             revision.scheduled_date = today
             revision.interval_days_after = 1
+            revision.fsrs_interval_days = 1
             return
 
         desired_interval = max(1, min(revision.interval_days_after or 1, days_until_exam))
         topic.fsrs_due_date = today + timedelta(days=desired_interval)
         revision.interval_days_after = desired_interval
+        revision.fsrs_interval_days = desired_interval
 
     def _require_subject(self, subject_id: str) -> Subject:
         subject = self.session.get(Subject, subject_id)

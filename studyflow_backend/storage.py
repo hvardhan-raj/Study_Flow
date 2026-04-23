@@ -30,14 +30,6 @@ def load_state(store_path: Path) -> dict[str, Any]:
             "desktop_notifications": False,
         },
         "assistant_messages": [],
-        "sync_settings": {
-            "enabled": False,
-            "supabase_url": "",
-            "supabase_anon_key": "",
-            "device_id": "",
-            "last_sync_at": "",
-        },
-        "sync_history": [],
         "suggestion_dismissed": False,
         "study_minutes": default_study_minutes(),
         "notifications": build_default_notifications(),
@@ -57,10 +49,6 @@ def load_state(store_path: Path) -> dict[str, Any]:
         state["reminder_preferences"].update(payload["reminder_preferences"])
     if isinstance(payload.get("assistant_messages"), list):
         state["assistant_messages"] = payload["assistant_messages"]
-    if isinstance(payload.get("sync_settings"), dict):
-        state["sync_settings"].update(payload["sync_settings"])
-    if isinstance(payload.get("sync_history"), list):
-        state["sync_history"] = payload["sync_history"]
     state["suggestion_dismissed"] = bool(payload.get("suggestion_dismissed", False))
     if isinstance(payload.get("study_minutes"), list):
         state["study_minutes"] = payload["study_minutes"]
@@ -75,8 +63,6 @@ def save_state(store_path: Path, state: dict[str, Any]) -> None:
         "alert_settings": state["alert_settings"],
         "reminder_preferences": state["reminder_preferences"],
         "assistant_messages": state["assistant_messages"],
-        "sync_settings": state["sync_settings"],
-        "sync_history": state["sync_history"],
         "suggestion_dismissed": state["suggestion_dismissed"],
         "study_minutes": state["study_minutes"],
         "notifications": state["notifications"],
