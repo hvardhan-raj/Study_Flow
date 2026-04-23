@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from contextlib import contextmanager
+from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.engine import URL
@@ -11,14 +12,19 @@ from config.settings import settings
 from models import Base
 
 
-def build_sqlite_url(database_path: str | None = None) -> str:
-    path = database_path or str(settings.database_path)
+def build_sqlite_url(database_path: str | Path | None = None) -> str:
+    path = str(database_path or settings.database_path)
     return str(URL.create("sqlite", database=path))
 
 
-def create_sqlite_engine(database_url: str | None = None, echo: bool = False) -> Engine:
+def create_sqlite_engine(
+    database_url: str | None = None,
+    *,
+    database_path: str | Path | None = None,
+    echo: bool = False,
+) -> Engine:
     engine = create_engine(
-        database_url or build_sqlite_url(),
+        database_url or build_sqlite_url(database_path),
         echo=echo,
         future=True,
         connect_args={
@@ -38,8 +44,17 @@ def create_sqlite_engine(database_url: str | None = None, echo: bool = False) ->
     return engine
 
 
-def create_session_factory(engine: Engine | None = None) -> sessionmaker[Session]:
-    return sessionmaker(bind=engine or create_sqlite_engine(), autoflush=False, expire_on_commit=False)
+def create_session_factory(
+    engine: Engine | None = None,
+    *,
+    database_url: str | None = None,
+    database_path: str | Path | None = None,
+) -> sessionmaker[Session]:
+    return sessionmaker(
+        bind=engine or create_sqlite_engine(database_url, database_path=database_path),
+        autoflush=False,
+        expire_on_commit=False,
+    )
 
 
 def get_session(factory: sessionmaker[Session] | None = None) -> Generator[Session, None, None]:
@@ -65,26 +80,26 @@ def session_scope(factory: sessionmaker[Session] | None = None) -> Generator[Ses
         session.close()
 
 
-engine = create_sqlite_engine(
-    f"sqlite:///{settings.database_path.as_posix()}",
-)
+engine = create_sqlite_engine(database_path=settings.database_path)
 SessionLocal = create_session_factory(engine)
 
 
-def init_database() -> None:
-    settings.database_path.parent.mkdir(parents=True, exist_ok=True)
-    if _database_needs_reset():
-        engine.dispose()
-        if settings.database_path.exists():
-            settings.database_path.unlink()
-    Base.metadata.create_all(engine)
+def init_database(*, engine_override: Engine | None = None, database_path: str | Path | None = None) -> None:
+    resolved_path = Path(database_path or settings.database_path)
+    resolved_path.parent.mkdir(parents=True, exist_ok=True)
+    active_engine = engine_override or engine
+    if _database_needs_reset(active_engine, resolved_path):
+        active_engine.dispose()
+        if resolved_path.exists():
+            resolved_path.unlink()
+    Base.metadata.create_all(active_engine)
 
 
-def _database_needs_reset() -> bool:
-    if not settings.database_path.exists():
+def _database_needs_reset(active_engine: Engine, database_path: Path) -> bool:
+    if not database_path.exists():
         return False
 
-    inspector = inspect(engine)
+    inspector = inspect(active_engine)
     required_columns = {
         "subjects": {"id", "name", "color", "archived", "created_at", "updated_at"},
         "topics": {"id", "subject_id", "name", "difficulty", "status", "mastery_score", "review_count"},

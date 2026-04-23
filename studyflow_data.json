@@ -1,10 +1,4 @@
 {
-  "user": {
-    "name": "User",
-    "email": "alex@studyflow.app",
-    "plan": "Free",
-    "title": "Premium Student"
-  },
   "settings": {
     "scheduling": {
       "algorithm": "SM-2 (Spaced Repetition)",
@@ -22,7 +16,9 @@
       "font_size": "Medium",
       "compact_ui": false
     },
-    "notifications": true,
+    "notifications": {
+      "enabled": true
+    },
     "data": {
       "export": "CSV / JSON",
       "backup": "Local only"
@@ -91,18 +87,36 @@
     35,
     35
   ],
-  "topics": [],
-  "tasks": [],
   "notifications": [
+    {
+      "id": "smart-due-2026-04-24",
+      "title": "Today's Revision Queue",
+      "body": "24 reviews due today. Start with CIDR notation.",
+      "icon": "T",
+      "color": "#3B82F6",
+      "read": false,
+      "timestamp": "2026-04-24T01:12:05.453289",
+      "time": "Now"
+    },
+    {
+      "id": "smart-overdue-2026-04-24",
+      "title": "7 Overdue Reviews",
+      "body": "Clear overdue material first to protect your recall schedule.",
+      "icon": "!",
+      "color": "#EF4444",
+      "read": false,
+      "timestamp": "2026-04-24T01:12:05.440774",
+      "time": "Now"
+    },
     {
       "id": "smart-weekly-2026-17",
       "title": "Weekly Report Ready",
-      "body": "You logged 70 minutes in recent sessions. Review your intelligence dashboard.",
+      "body": "You logged 70 minutes in recent sessions.",
       "icon": "R",
       "color": "#8B5CF6",
       "read": true,
       "timestamp": "2026-04-21T22:22:28.266186",
-      "time": "Now"
+      "time": "2d ago"
     }
   ]
 }

@@ -49,7 +49,7 @@ Rectangle {
                     font.family: "Segoe UI"
                 }
                 Text {
-                    text: "Smart Study Schedule"
+                    text: "Smart Study Schedule System"
                     font.pixelSize: 9
                     color: "#6B7C94"
                     font.family: "Segoe UI"
@@ -88,7 +88,6 @@ Rectangle {
             Layout.leftMargin: 20
             Layout.rightMargin: 20
             Layout.bottomMargin: 18
-            text: "Focused planning, faster reviews."
             wrapMode: Text.WordWrap
             font.pixelSize: 10
             font.family: "Segoe UI"

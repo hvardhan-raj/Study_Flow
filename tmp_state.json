@@ -93,12 +93,12 @@
     {
       "id": "smart-due-2026-04-24",
       "title": "Today's Revision Queue",
-      "body": "25 reviews due today. Start with CIDR notation.",
+      "body": "6 reviews due today. Start with Magnetism.",
       "icon": "T",
       "color": "#3B82F6",
       "read": false,
       "timestamp": "2026-04-24T00:16:07.452063",
-      "time": "Now"
+      "time": "55m ago"
     },
     {
       "id": "smart-overdue-2026-04-24",
@@ -108,24 +108,24 @@
       "color": "#EF4444",
       "read": false,
       "timestamp": "2026-04-24T00:16:07.441320",
-      "time": "Now"
+      "time": "55m ago"
     },
     {
       "id": "smart-weekly-2026-17",
       "title": "Weekly Report Ready",
-      "body": "You logged 377 minutes in recent sessions.",
+      "body": "You logged 306 minutes in recent sessions.",
       "icon": "R",
       "color": "#8B5CF6",
       "read": true,
       "timestamp": "2026-04-23T23:23:33.730493",
-      "time": "53m ago"
+      "time": "1h ago"
     },
     {
       "id": "notif-1",
       "icon": "!",
       "title": "Overdue: Deadlocks",
       "body": "This topic slipped by two days. Review it before starting something new.",
-      "time": "12h ago",
+      "time": "13h ago",
       "read": false,
       "color": "#EF4444",
       "timestamp": "2026-04-23T12:00:00"
@@ -135,7 +135,7 @@
       "icon": "T",
       "title": "Reminder: SQL Queries",
       "body": "Your next revision starts in 30 minutes.",
-      "time": "12h ago",
+      "time": "13h ago",
       "read": false,
       "color": "#F59E0B",
       "timestamp": "2026-04-23T11:59:00"
@@ -145,7 +145,7 @@
       "icon": "AI",
       "title": "AI Suggestion",
       "body": "Move Dynamic Programming earlier for better recall based on recent sessions.",
-      "time": "12h ago",
+      "time": "13h ago",
       "read": false,
       "color": "#3B82F6",
       "timestamp": "2026-04-23T11:58:00"
@@ -155,7 +155,7 @@
       "icon": "OK",
       "title": "Session Complete",
       "body": "You finished Process Scheduling and rated the session 4 out of 5.",
-      "time": "12h ago",
+      "time": "13h ago",
       "read": true,
       "color": "#10B981",
       "timestamp": "2026-04-23T11:57:00"
@@ -165,7 +165,7 @@
       "icon": "R",
       "title": "Weekly Report Ready",
       "body": "Your study report is ready to review.",
-      "time": "12h ago",
+      "time": "13h ago",
       "read": true,
       "color": "#8B5CF6",
       "timestamp": "2026-04-23T11:56:00"

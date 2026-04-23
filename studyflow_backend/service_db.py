@@ -12,7 +12,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from db.session import init_database, session_scope
+from config.settings import settings
+from db.session import create_session_factory, create_sqlite_engine, init_database, session_scope
 from llm import AssistantContext, LLMService
 from models import ConfidenceRating, DifficultyLevel, Revision, StudySession, Subject, Topic
 from nlp import NLPService, load_training_examples, train_model
@@ -79,10 +80,13 @@ def seed_defaults(db: Session) -> None:
 class StudyFlowBackend(QObject):
     stateChanged = Signal()
 
-    def __init__(self, store_path: Path | None = None) -> None:
+    def __init__(self, store_path: Path | None = None, database_path: Path | None = None) -> None:
         super().__init__()
-        init_database()
         self._store_path = store_path or Path(__file__).resolve().parent.parent / "studyflow_data.json"
+        self._database_path = Path(database_path) if database_path is not None else self._resolve_database_path(self._store_path)
+        self._engine = create_sqlite_engine(database_path=self._database_path)
+        self._session_factory = create_session_factory(self._engine)
+        init_database(engine_override=self._engine, database_path=self._database_path)
         self._today_provider = date.today
         self._today_value = self._today_provider()
         self._selected_date = self._today_value
@@ -107,10 +111,20 @@ class StudyFlowBackend(QObject):
         self._refresh_reminder_notifications()
 
     def _db(self):
-        return session_scope()
+        return session_scope(self._session_factory)
+
+    def _resolve_database_path(self, store_path: Path) -> Path:
+        if store_path.name.endswith("_state.json"):
+            return store_path.with_suffix(".sqlite3")
+        return settings.database_path
 
     def _ensure_database_ready(self) -> None:
         with self._db() as db:
+            leaked_topics = list(db.scalars(select(Topic).where(Topic.name.like("Dashboard Upcoming Seed%"))))
+            if leaked_topics:
+                for topic in leaked_topics:
+                    db.delete(topic)
+                logger.warning("Removed %s leaked dashboard test topic(s) from %s", len(leaked_topics), self._database_path)
             seed_defaults(db)
 
     def _load_json_state(self) -> None:
@@ -889,7 +903,7 @@ class StudyFlowBackend(QObject):
         with self._db() as db:
             service = TopicService(db, scheduler=SchedulerService(db))
             topic = service.create_topic(subject_id=subject_id, name=topic_name.strip(), difficulty=DifficultyLevel((difficulty or "Medium").lower()), auto_schedule=False)
-            offset = {"overdue": 0, "today": 0, "tomorrow": 1, "this_week": 3}.get(schedule_key, 0)
+            offset = {"overdue": -1, "today": 0, "tomorrow": 1, "this_week": 3}.get(schedule_key, 0)
             SchedulerService(db).schedule_new_topic(topic.id, scheduled_for=self._today + timedelta(days=offset))
         self._emit()
 

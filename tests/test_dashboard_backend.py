@@ -8,6 +8,8 @@ from studyflow_backend.service import StudyFlowBackend
 def test_dashboard_columns_split_tasks_by_schedule(tmp_path) -> None:
     backend = StudyFlowBackend(tmp_path / "dashboard_state.json")
     subject = backend.getSubjects()[0]
+    backend.addTask(f"Dashboard Overdue Seed {uuid4().hex}", str(subject["id"]), "Medium", "overdue")
+    backend.addTask(f"Dashboard Due Today Seed {uuid4().hex}", str(subject["id"]), "Medium", "today")
     backend.addTask(f"Dashboard Upcoming Seed {uuid4().hex}", str(subject["id"]), "Medium", "tomorrow")
 
     columns = {column["key"]: column for column in backend.dashboardColumns}
