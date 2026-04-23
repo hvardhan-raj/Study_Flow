@@ -504,15 +504,19 @@ class StudyFlowBackend(QObject):
         )
     @Property("QVariantList", notify=stateChanged)
     def dashboardStats(self) -> list[dict[str, Any]]:
+        tasks = self._tasks
         due_today = len(self._tasks_for_bucket("due_today"))
         overdue = len(self._tasks_for_bucket("overdue"))
-        completed_today = len([task for task in self._tasks if task["completed"] and task["scheduled_at"].date() == self._today])
-        completion_rate = round((completed_today / due_today) * 100) if due_today else 0
+        scheduled_today = len([task for task in tasks if task["scheduled_at"].date() == self._today])
+        completed_today = len([task for task in tasks if task["completed"] and task["scheduled_at"].date() == self._today])
+        completion_pct = round((completed_today / scheduled_today) * 100) if scheduled_today else 0
+        completion_rate = max(0, min(100, completion_pct))
         avg_conf = round(sum(topic["confidence"] for topic in self._topics) / len(self._topics), 1) if self._topics else 0.0
+        completion_subtitle = f"{completed_today}/{scheduled_today} sessions completed" if scheduled_today else "No sessions scheduled"
         return [
             {"title": "OVERDUE", "value": str(overdue), "subtitle": "Need attention", "trend": "High" if overdue else "Clear", "trendUp": overdue == 0, "valueColor": "#EF4444" if overdue else "#1A2332", "accentColor": "#EF4444"},
-            {"title": "DUE TODAY", "value": str(due_today), "subtitle": "Scheduled reviews", "trend": f"{completed_today} done", "trendUp": True, "valueColor": "#1A2332", "accentColor": "#3B82F6"},
-            {"title": "COMPLETION", "value": f"{completion_rate}%", "subtitle": "Today's pace", "trend": "On track" if completion_rate >= 50 else "Warm up", "trendUp": completion_rate >= 50, "valueColor": "#1A2332", "accentColor": "#10B981"},
+            {"title": "DUE TODAY", "value": str(due_today), "subtitle": "Remaining reviews", "trend": f"{completed_today} done", "trendUp": completed_today > 0 or due_today == 0, "valueColor": "#1A2332", "accentColor": "#3B82F6"},
+            {"title": "COMPLETION", "value": f"{completion_rate}%", "subtitle": completion_subtitle, "trend": "Complete" if completion_rate == 100 and scheduled_today else ("On track" if completion_rate >= 50 else "Warm up"), "trendUp": completion_rate >= 50, "valueColor": "#1A2332", "accentColor": "#10B981", "progressValue": completion_rate},
             {"title": "AVG CONFIDENCE", "value": f"{avg_conf:.1f}/5", "subtitle": "Across topics", "trend": "Steady recall", "trendUp": avg_conf >= 3.5, "valueColor": "#1A2332", "accentColor": "#8B5CF6"},
         ]
 
@@ -873,7 +877,7 @@ class StudyFlowBackend(QObject):
     def markTaskDone(self, task_id: str) -> None:
         with self._db() as db:
             revision = db.get(Revision, int(task_id))
-            if revision is None:
+            if revision is None or revision.status != "open":
                 return
             SchedulerService(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=datetime.now())
             revision.topic.mastery_score = max(0, min(100, (revision.topic.mastery_score or 0) + RATING_TO_PROGRESS[3]))
@@ -886,7 +890,7 @@ class StudyFlowBackend(QObject):
     def completeRevision(self, task_id: str, rating: int) -> None:
         with self._db() as db:
             revision = db.get(Revision, int(task_id))
-            if revision is None:
+            if revision is None or revision.status != "open":
                 return
             safe_rating = max(1, min(int(rating), 4))
             SchedulerService(db).record_revision(revision.id, rating=_rating_from_int(safe_rating), completed_at=datetime.now())

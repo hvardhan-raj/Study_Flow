@@ -25,16 +25,20 @@ ApplicationWindow {
             id: sidebar
             Layout.fillHeight: true
             Layout.preferredWidth: 220
-            pages: navigation.pages
-            activePage: navigation.currentIndex
-            onPageSelected: function(idx) { navigation.navigateToIndex(idx) }
+            pages: navigation ? navigation.pages : []
+            activePage: navigation ? navigation.currentIndex : 0
+            onPageSelected: function(idx) {
+                if (navigation) {
+                    navigation.navigateToIndex(idx)
+                }
+            }
         }
 
         StackLayout {
             id: contentStack
             Layout.fillWidth: true
             Layout.fillHeight: true
-            currentIndex: navigation.currentIndex
+            currentIndex: navigation ? navigation.currentIndex : 0
 
             DashboardScreen          {}   // 0
             TaskInboxScreen          {}   // 1

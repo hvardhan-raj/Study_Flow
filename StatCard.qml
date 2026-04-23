@@ -13,9 +13,10 @@ Rectangle {
     property bool   trendUp:     true
     property color  valueColor:  "#0F172A"
     property color  accentColor: "#3B82F6"
+    property real   progressValue: -1
 
     width:  180
-    height: 106
+    implicitHeight: progressValue >= 0 ? 124 : 106
     radius: 14
     color:  "#FFFFFF"
     border.color: "#EEF2F8"
@@ -74,11 +75,27 @@ Rectangle {
             }
 
             Text {
+                Layout.fillWidth: true
                 text: root.subtitle
                 font.pixelSize: 10
                 font.family: "Segoe UI"
                 color: "#94A3B8"
                 elide: Text.ElideRight
+            }
+        }
+
+        Rectangle {
+            visible: root.progressValue >= 0
+            Layout.fillWidth: true
+            implicitHeight: 6
+            radius: 3
+            color: "#E2E8F0"
+
+            Rectangle {
+                width: Math.max(0, Math.min(parent.width, parent.width * Math.max(0, Math.min(root.progressValue, 100)) / 100.0))
+                height: parent.height
+                radius: parent.radius
+                color: root.accentColor
             }
         }
     }

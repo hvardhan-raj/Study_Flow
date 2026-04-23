@@ -164,6 +164,8 @@ Rectangle {
         onEntered: root._hov = true
         onExited:  root._hov = false
         propagateComposedEvents: true
-        onClicked: mouse.accepted = false
+        function onClicked(mouse) {
+            mouse.accepted = false
+        }
     }
 }
