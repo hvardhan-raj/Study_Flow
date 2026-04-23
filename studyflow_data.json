@@ -1,0 +1,118 @@
+{
+  "user": {
+    "name": "User",
+    "email": "alex@studyflow.app",
+    "plan": "Free",
+    "title": "Premium Student"
+  },
+  "settings": {
+    "scheduling": {
+      "algorithm": "SM-2 (Spaced Repetition)",
+      "daily_goal": "2 hours",
+      "session_length": "25 min (Pomodoro)",
+      "weekend_sessions": false
+    },
+    "ai": {
+      "model": "Local study assistant",
+      "suggestions": true,
+      "auto_reschedule": false
+    },
+    "appearance": {
+      "theme": "Light",
+      "font_size": "Medium",
+      "compact_ui": false
+    },
+    "notifications": true,
+    "data": {
+      "export": "CSV / JSON",
+      "backup": "Local only"
+    },
+    "reminders": true,
+    "auto_schedule": true
+  },
+  "alert_settings": {
+    "due_today": true,
+    "overdue": true,
+    "ai_suggestions": true,
+    "weekly_reports": true,
+    "session_reminders": true,
+    "streak_reminders": true
+  },
+  "reminder_preferences": {
+    "enabled": true,
+    "notification_time": "08:00",
+    "minimum_due_for_alert": 1,
+    "desktop_notifications": false
+  },
+  "assistant_messages": [
+    {
+      "role": "assistant",
+      "text": "I can help decide what to study next, explain due topics, and turn your weak areas into a short plan.",
+      "source": "system",
+      "id": "msg-84b3789c",
+      "timestamp": "2026-04-20T23:09:05.552772",
+      "time": "23:09"
+    },
+    {
+      "role": "user",
+      "text": "hi",
+      "source": "user",
+      "timestamp": "2026-04-21T15:04:16.574975",
+      "id": "msg-fa04be3d",
+      "time": "15:04"
+    },
+    {
+      "role": "assistant",
+      "text": "No urgent study items are queued. Add topics or do a light 15-minute review to keep momentum.",
+      "source": "offline",
+      "timestamp": "2026-04-21T15:04:16.634216",
+      "id": "msg-83b970b9",
+      "time": "15:04"
+    },
+    {
+      "role": "user",
+      "text": "is ollama connected",
+      "source": "user",
+      "timestamp": "2026-04-21T15:04:48.405472",
+      "id": "msg-90619730",
+      "time": "15:04"
+    },
+    {
+      "role": "assistant",
+      "text": "No urgent study items are queued. Add topics or do a light 15-minute review to keep momentum.",
+      "source": "offline",
+      "timestamp": "2026-04-21T15:04:48.428048",
+      "id": "msg-63ab2382",
+      "time": "15:04"
+    }
+  ],
+  "sync_settings": {
+    "enabled": false,
+    "supabase_url": "",
+    "supabase_anon_key": "",
+    "device_id": "device-fefcc67478",
+    "last_sync_at": ""
+  },
+  "sync_history": [],
+  "suggestion_dismissed": true,
+  "study_minutes": [
+    35,
+    35
+  ],
+  "topics": [],
+  "tasks": [],
+  "notifications": [
+    {
+      "id": "smart-weekly-2026-17",
+      "title": "Weekly Report Ready",
+      "body": "You logged 70 minutes in recent sessions. Review your intelligence dashboard.",
+      "icon": "R",
+      "color": "#8B5CF6",
+      "read": true,
+      "timestamp": "2026-04-21T22:22:28.266186",
+      "sync_status": "pending",
+      "updated_at": "2026-04-21T22:22:28.266186",
+      "time": "Now"
+    }
+  ]
+}

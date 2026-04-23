@@ -1,0 +1,23 @@
+<RCC>
+    <qresource>
+        <file>AppButton.qml</file>
+        <file>CalendarScreen.qml</file>
+        <file>CurriculumMapScreen.qml</file>
+        <file>DashboardScreen.qml</file>
+        <file>LearningIntelligenceScreen.qml</file>
+        <file>Main.qml</file>
+        <file>NotificationsScreen.qml</file>
+        <file>PageHeader.qml</file>
+        <file>RevisionScheduleScreen.qml</file>
+        <file>SettingsRow.qml</file>
+        <file>SettingsScreen.qml</file>
+        <file>SettingsSection.qml</file>
+        <file>Sidebar.qml</file>
+        <file>SidebarItem.qml</file>
+        <file>StatCard.qml</file>
+        <file>StudyFlow.qmlproject</file>
+        <file>TagPill.qml</file>
+        <file>TaskInboxScreen.qml</file>
+        <file>Theme.qml</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,21 @@
+StudyFlow Learning Report
+Generated: 2026-04-22 00:36
+
+Summary
+- Weekly focus: 276m
+- Completion: 25%
+- Mastery: 62%
+- Recall: 63%
+
+Subject Health
+- Biology: confidence 70%, progress 65.0%, risk High
+- Mathematics: confidence 70%, progress 68.2%, risk Medium
+- History: confidence 65%, progress 67.8%, risk Medium
+- Chemistry: confidence 60%, progress 56.2%, risk High
+- Physics: confidence 50%, progress 52.0%, risk High
+
+Insights
+- Prioritize Thermodynamics: Physics has low recall confidence. Schedule a short active-recall pass before adding new material.
+- Clear Overdue Load: 6 overdue reviews are influencing the recall score.
+- Keep Mathematics Warm: Quadratic Equations is your strongest topic. Use lighter reviews to preserve retention without over-spending time.
+- Weekly Study Rhythm: You logged 276 minutes across the latest sessions. Aim for steady 25-minute blocks instead of one large catch-up.

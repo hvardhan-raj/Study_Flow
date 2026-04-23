@@ -1,0 +1,22 @@
+[project]
+name = "smart-study-schedule-system"
+version = "0.1.0"
+description = "Offline-first desktop study planner built with PySide6 and QML."
+readme = "README.md"
+requires-python = ">=3.14"
+
+[project.scripts]
+smart-study-schedule = "main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+exclude = ["alembic/versions", "scratch_test.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E501"]

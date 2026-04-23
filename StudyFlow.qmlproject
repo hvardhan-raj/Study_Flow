@@ -1,0 +1,17 @@
+import QmlProject 1.3
+
+Project {
+    mainFile: "Main.qml"
+
+    QmlFiles {
+        directory: "."
+    }
+
+    importPaths: [ "." ]
+
+    Environment {
+        QT_AUTO_SCREEN_SCALE_FACTOR: "1"
+        QT_QUICK_CONTROLS_STYLE: "Basic"
+        QT_LOGGING_RULES: "qt.qml.connections=false"
+    }
+}

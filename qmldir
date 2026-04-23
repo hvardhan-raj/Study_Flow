@@ -1,0 +1,17 @@
+AppButton                   1.0 AppButton.qml
+CalendarScreen              1.0 CalendarScreen.qml
+CurriculumMapScreen         1.0 CurriculumMapScreen.qml
+DashboardScreen             1.0 DashboardScreen.qml
+LearningIntelligenceScreen  1.0 LearningIntelligenceScreen.qml
+NotificationsScreen         1.0 NotificationsScreen.qml
+PageHeader                  1.0 PageHeader.qml
+RevisionScheduleScreen      1.0 RevisionScheduleScreen.qml
+SettingsScreen              1.0 SettingsScreen.qml
+Sidebar                     1.0 Sidebar.qml
+SidebarItem                 1.0 SidebarItem.qml
+StatCard                    1.0 StatCard.qml
+TagPill                     1.0 TagPill.qml
+TaskInboxScreen             1.0 TaskInboxScreen.qml
+Theme                       1.0 Theme.qml
+SettingsSection  1.0 SettingsSection.qml
+SettingsRow      1.0 SettingsRow.qml

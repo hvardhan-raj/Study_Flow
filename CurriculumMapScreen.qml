@@ -1,0 +1,364 @@
+import QtQuick 2.15
+import QtQuick.Controls 2.15
+import QtQuick.Layouts 1.15
+
+Rectangle {
+    id: root
+    color: "#F4F6FA"
+
+    property string editingTopicId: ""
+    property string editingParentId: ""
+
+    function openSubjectDialog() {
+        subjectNameField.text = ""
+        subjectColorField.text = "#3B82F6"
+        addSubjectDialog.open()
+    }
+
+    function openTopicDialog(topicId, parentId, subjectName) {
+        editingTopicId = topicId || ""
+        editingParentId = parentId || ""
+        var topic = findTopicById(topicId)
+        topicNameField.text = topic ? topic.name : ""
+        var desiredSubjectId = topic ? topic.subjectId : (subjectName || (backend.curriculumSubjectOptions.length > 0 ? backend.curriculumSubjectOptions[0].id : ""))
+        var targetIndex = 0
+        for (var i = 0; i < backend.curriculumSubjectOptions.length; ++i) {
+            if (backend.curriculumSubjectOptions[i].id === desiredSubjectId) {
+                targetIndex = i
+                break
+            }
+        }
+        topicSubjectBox.currentIndex = targetIndex
+        topicDifficultyBox.currentIndex = ["Easy", "Medium", "Hard"].indexOf(topic ? topic.difficulty : "Medium")
+        topicNotesField.text = topic ? (topic.notes || "") : ""
+        suggestionBadge.text = ""
+        topicDialog.open()
+    }
+
+    function findTopicById(topicId) {
+        for (var i = 0; i < backend.curriculumSubjects.length; ++i) {
+            var roots = backend.curriculumSubjects[i].topics || []
+            var found = findInNodes(roots, topicId)
+            if (found)
+                return found
+        }
+        return null
+    }
+
+    function findInNodes(nodes, topicId) {
+        for (var i = 0; i < nodes.length; ++i) {
+            if (nodes[i].id === topicId)
+                return nodes[i]
+            var nested = findInNodes(nodes[i].children || [], topicId)
+            if (nested)
+                return nested
+        }
+        return null
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 0
+
+        PageHeader {
+            Layout.fillWidth: true
+            pageTitle: "Topic Manager"
+            pageSubtitle: "HIERARCHY, BULK IMPORT, AND NLP SUGGESTIONS"
+            rightContent: [
+                AppButton { label: "Import"; variant: "secondary"; small: true; onClicked: importDialog.open() },
+                AppButton { label: "+ Add Subject"; variant: "secondary"; small: true; onClicked: root.openSubjectDialog() },
+                AppButton { label: "+ Add Topic"; variant: "primary"; small: true; onClicked: root.openTopicDialog("", "", "") }
+            ]
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            color: "#FFFFFF"
+            border.color: "#E2E8F0"
+            implicitHeight: toolbarRow.implicitHeight + 24
+
+            RowLayout {
+                id: toolbarRow
+                anchors.fill: parent
+                anchors.margins: 16
+                spacing: 10
+
+                TextField {
+                    id: searchField
+                    Layout.preferredWidth: 260
+                    placeholderText: "Search topics or subjects"
+                    text: backend.curriculumSearch
+                    onTextChanged: backend.setCurriculumSearch(text)
+                }
+
+                Repeater {
+                    model: ["All", "Easy", "Medium", "Hard"]
+                    delegate: Rectangle {
+                        property bool selected: modelData === backend.curriculumDifficulty
+                        radius: 16
+                        implicitWidth: filterLabel.implicitWidth + 22
+                        implicitHeight: 30
+                        color: selected ? "#3B82F6" : "#F8FAFC"
+                        border.width: 1
+                        border.color: selected ? "#3B82F6" : "#E2E8F0"
+
+                        Text {
+                            id: filterLabel
+                            anchors.centerIn: parent
+                            text: modelData
+                            font.pixelSize: 11
+                            font.bold: selected
+                            color: selected ? "#FFFFFF" : "#64748B"
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: backend.setCurriculumDifficulty(modelData)
+                        }
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Repeater {
+                    model: backend.curriculumSummary.stats || []
+                    delegate: Rectangle {
+                        radius: 14
+                        color: Qt.rgba(modelData.color.r, modelData.color.g, modelData.color.b, 0.10)
+                        implicitWidth: statLabel.implicitWidth + statValue.implicitWidth + 26
+                        implicitHeight: 28
+
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 6
+                            Text { id: statLabel; text: modelData.label; font.pixelSize: 10; color: "#64748B" }
+                            Text { id: statValue; text: modelData.value; font.pixelSize: 10; font.bold: true; color: modelData.color }
+                        }
+                    }
+                }
+            }
+        }
+
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            contentWidth: availableWidth
+            clip: true
+
+            ColumnLayout {
+                width: parent.width
+                spacing: 14
+
+                Repeater {
+                    model: backend.curriculumSubjects
+                    delegate: Rectangle {
+                        property var subjectData: modelData
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 20
+                        Layout.rightMargin: 20
+                        radius: 20
+                        color: "#FFFFFF"
+                        border.width: 1
+                        border.color: Qt.rgba(subjectData.accentColor.r, subjectData.accentColor.g, subjectData.accentColor.b, 0.16)
+                        implicitHeight: subjectColumn.implicitHeight + 28
+
+                        ColumnLayout {
+                            id: subjectColumn
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            spacing: 12
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+
+                                Rectangle {
+                                    width: 34
+                                    height: 34
+                                    radius: 10
+                                    color: Qt.rgba(modelData.accentColor.r, modelData.accentColor.g, modelData.accentColor.b, 0.12)
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: subjectData.iconText
+                                        font.pixelSize: 15
+                                        color: subjectData.accentColor
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    spacing: 2
+                                    Text { text: subjectData.subjectName; font.pixelSize: 15; font.bold: true; color: "#1A2332" }
+                                    Text { text: subjectData.topicCount + " topics"; font.pixelSize: 10; color: "#94A3B8" }
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                AppButton {
+                                    label: "+ Topic"
+                                    variant: "secondary"
+                                    small: true
+                                    onClicked: root.openTopicDialog("", "", subjectData.subjectId)
+                                }
+                            }
+
+                            Repeater {
+                                model: subjectData.topics
+                                delegate: TopicTreeCard {
+                                    Layout.fillWidth: true
+                                    nodeData: modelData
+                                    accentColor: subjectData.accentColor
+                                    onRequestEdit: function(topicId) { root.openTopicDialog(topicId, "", nodeData.subject) }
+                                    onRequestAddChild: function(topicId, subjectName) { root.openTopicDialog("", topicId, subjectName) }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Item {
+                    visible: backend.curriculumSubjects.length === 0
+                    Layout.fillWidth: true
+                    implicitHeight: 220
+
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 8
+                        Text { text: "No topics match this view"; font.pixelSize: 15; font.bold: true; color: "#1A2332" }
+                        Text { text: "Try a different filter, or add/import topics to begin."; font.pixelSize: 11; color: "#94A3B8" }
+                    }
+                }
+
+                Item { height: 16 }
+            }
+        }
+    }
+
+    Dialog {
+        id: addSubjectDialog
+        modal: true
+        width: 360
+        title: "Add Subject"
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: backend.addSubject(subjectNameField.text, subjectColorField.text)
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 10
+
+            TextField {
+                id: subjectNameField
+                Layout.fillWidth: true
+                placeholderText: "Subject name"
+            }
+
+            TextField {
+                id: subjectColorField
+                Layout.fillWidth: true
+                placeholderText: "#3B82F6"
+            }
+        }
+    }
+
+    Dialog {
+        id: topicDialog
+        modal: true
+        width: 420
+        title: editingTopicId ? "Edit Topic" : "Add Topic"
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: backend.upsertTopic(
+            editingTopicId,
+            topicNameField.text,
+            topicSubjectBox.currentValue,
+            topicDifficultyBox.currentText,
+            editingParentId,
+            topicNotesField.text
+        )
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 10
+
+            TextField {
+                id: topicNameField
+                Layout.fillWidth: true
+                placeholderText: "Topic name"
+                onEditingFinished: {
+                    var suggestion = backend.suggestTopicDifficulty(text)
+                    if (suggestion.difficulty) {
+                        topicDifficultyBox.currentIndex = ["Easy", "Medium", "Hard"].indexOf(suggestion.difficulty)
+                        suggestionBadge.text = "Suggested " + suggestion.difficulty + " (" + Math.round(suggestion.confidence * 100) + "%)"
+                    } else if (text.length > 0) {
+                        suggestionBadge.text = "No strong suggestion yet"
+                    }
+                }
+            }
+
+            ComboBox {
+                id: topicSubjectBox
+                Layout.fillWidth: true
+                model: backend.curriculumSubjectOptions
+                textRole: "name"
+                valueRole: "id"
+            }
+
+            ComboBox {
+                id: topicDifficultyBox
+                Layout.fillWidth: true
+                model: ["Easy", "Medium", "Hard"]
+            }
+
+            Text {
+                id: suggestionBadge
+                Layout.fillWidth: true
+                color: "#3B82F6"
+                font.pixelSize: 10
+                wrapMode: Text.WordWrap
+            }
+
+            TextArea {
+                id: topicNotesField
+                Layout.fillWidth: true
+                Layout.preferredHeight: 100
+                placeholderText: "Notes"
+                wrapMode: TextEdit.WordWrap
+            }
+        }
+    }
+
+    Dialog {
+        id: importDialog
+        modal: true
+        width: 480
+        title: "Bulk Import Topics"
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: backend.importTopics(importText.text, importSubjectBox.currentValue, csvModeCheck.checked)
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 10
+
+            ComboBox {
+                id: importSubjectBox
+                Layout.fillWidth: true
+                model: backend.curriculumSubjectOptions
+                textRole: "name"
+                valueRole: "id"
+            }
+
+            CheckBox {
+                id: csvModeCheck
+                text: "Treat input as CSV (first column)"
+            }
+
+            TextArea {
+                id: importText
+                Layout.fillWidth: true
+                Layout.preferredHeight: 180
+                placeholderText: "Paste one topic per line, or CSV rows"
+                wrapMode: TextEdit.WordWrap
+            }
+        }
+    }
+}
