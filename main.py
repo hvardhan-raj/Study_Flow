@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, Qt
 from PySide6.QtGui import QGuiApplication
+from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtQml import QQmlApplicationEngine
 
 from backend import StudyFlowBackend
@@ -36,6 +37,8 @@ def main() -> int:
     logger = configure_logging()
     settings.ensure_directories()
 
+    # Use a non-native controls style so the app's custom QML backgrounds are supported.
+    QQuickStyle.setStyle("Fusion")
     QGuiApplication.setOrganizationName("SmartStudy")
     QGuiApplication.setApplicationName(settings.app_name)
     app = QGuiApplication(sys.argv)

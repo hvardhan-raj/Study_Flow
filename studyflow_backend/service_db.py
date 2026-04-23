@@ -46,6 +46,17 @@ ALERT_SETTING_META = {
     "session_reminders": ("Session Reminders", "Remind before planned study blocks.", "#F59E0B"),
     "streak_reminders": ("Streak Reminders", "Nudge consistency when activity drops.", "#14B8A6"),
 }
+
+
+def _rating_from_int(value: int) -> ConfidenceRating:
+    return {
+        1: ConfidenceRating.AGAIN,
+        2: ConfidenceRating.HARD,
+        3: ConfidenceRating.GOOD,
+        4: ConfidenceRating.EASY,
+    }[max(1, min(int(value), 4))]
+
+
 def seed_defaults(db: Session) -> None:
     if db.query(Subject.id).first() is not None:
         return
@@ -61,7 +72,7 @@ def seed_defaults(db: Session) -> None:
         subject = subject_service.create_subject(name=subject_name, color_tag=color)
         for topic_name, difficulty, progress in topics:
             topic = topic_service.create_topic(subject_id=subject.id, name=topic_name, difficulty=difficulty)
-            topic.progress = progress
+            topic.mastery_score = float(progress)
 
 
 class StudyFlowBackend(QObject):
@@ -255,30 +266,31 @@ class StudyFlowBackend(QObject):
 
     def _subject_meta(self, subject: Subject | None = None, *, name: str = "", color: str = "#64748B") -> SubjectMeta:
         label = subject.name if subject is not None else name
-        shade = subject.color_tag if subject is not None else color
+        shade = subject.color if subject is not None else color
         words = [part[:1] for part in label.split() if part]
         return SubjectMeta(("".join(words)[:2] or "?").upper(), shade or "#64748B")
 
     def _difficulty_label(self, difficulty: DifficultyLevel) -> str:
-        return difficulty.value.capitalize()
+        value = difficulty.value if hasattr(difficulty, "value") else difficulty
+        return str(value).capitalize()
 
     def _progress_for_topic(self, topic: Topic) -> int:
-        return max(0, min(int(topic.progress or 0), 100))
+        return max(0, min(int(round(topic.mastery_score or 0)), 100))
 
     def _confidence_for_topic(self, topic: Topic) -> int:
-        if topic.fsrs_difficulty is None:
-            return 3
-        score = round((1.0 - topic.fsrs_difficulty) * 4) + 1
+        mastery = max(0.0, min(float(topic.mastery_score or 0.0), 100.0))
+        difficulty_penalty = {"easy": 0, "medium": 0.35, "hard": 0.7}.get(str(topic.difficulty).lower(), 0.35)
+        score = round((mastery / 25.0) + 1 - difficulty_penalty)
         return max(1, min(score, CONFIDENCE_MAX))
 
     def _scheduled_datetime(self, revision: Revision) -> datetime:
-        hour = {"Easy": 15, "Medium": 11, "Hard": 9}[self._difficulty_label(revision.topic.difficulty)]
-        return datetime.combine(revision.scheduled_date, time(hour, 0))
+        return revision.due_at
 
     def _serialize_topic(self, topic: Topic) -> dict[str, Any]:
         meta = self._subject_meta(topic.subject)
-        exam_date = topic.exam_date.isoformat() if topic.exam_date else ""
-        completion_date = topic.completion_date.isoformat() if topic.completion_date else ""
+        exam_date_value = topic.exam_date_override or topic.subject.exam_date
+        exam_date = exam_date_value.isoformat() if exam_date_value else ""
+        completion_date = topic.last_reviewed_at.date().isoformat() if topic.status == "completed" and topic.last_reviewed_at else ""
         return {
             "id": topic.id,
             "subjectId": topic.subject_id,
@@ -288,14 +300,14 @@ class StudyFlowBackend(QObject):
             "difficultyColor": difficulty_color(self._difficulty_label(topic.difficulty)),
             "progress": self._progress_for_topic(topic),
             "confidence": self._confidence_for_topic(topic),
-            "notes": topic.notes or "",
-            "parent_topic_id": topic.parent_topic_id,
+            "notes": topic.description or "",
+            "parent_topic_id": None,
             "exam_date": exam_date,
             "examDate": exam_date,
             "completion_date": completion_date,
             "completionDate": completion_date,
-            "is_completed": bool(topic.is_completed),
-            "isCompleted": bool(topic.is_completed),
+            "is_completed": topic.status == "completed",
+            "isCompleted": topic.status == "completed",
             "subjectMeta": {"icon": meta.icon, "color": meta.color},
         }
 
@@ -311,9 +323,9 @@ class StudyFlowBackend(QObject):
             "difficulty": self._difficulty_label(topic.difficulty),
             "scheduled_at": scheduled_at,
             "confidence": self._confidence_for_topic(topic),
-            "duration_minutes": DIFFICULTY_TO_DURATION[self._difficulty_label(topic.difficulty)],
+            "duration_minutes": topic.estimated_minutes or DIFFICULTY_TO_DURATION[self._difficulty_label(topic.difficulty)],
             "completed_at": revision.completed_at,
-            "completed": bool(revision.is_completed),
+            "completed": revision.status == "completed",
         }
     def _all_topics(self) -> list[dict[str, Any]]:
         with self._db() as db:
@@ -325,7 +337,7 @@ class StudyFlowBackend(QObject):
             stmt = (
                 select(Revision)
                 .options(joinedload(Revision.topic).joinedload(Topic.subject))
-                .order_by(Revision.scheduled_date, Revision.created_at)
+                .order_by(Revision.due_at, Revision.created_at)
             )
             return list(db.scalars(stmt))
 
@@ -817,10 +829,10 @@ class StudyFlowBackend(QObject):
         safe_rating = max(1, min(int(rating), 4))
         with self._db() as db:
             scheduler = SchedulerService(db)
-            scheduler.review(topic_id, ConfidenceRating(str(safe_rating)), completed_at=datetime.now())
-            topic = db.get(Topic, topic_id)
+            scheduler.review(topic_id, _rating_from_int(safe_rating), completed_at=datetime.now())
+            topic = db.get(Topic, int(topic_id))
             if topic is not None:
-                topic.progress = max(0, min(100, (topic.progress or 0) + RATING_TO_PROGRESS[safe_rating]))
+                topic.mastery_score = max(0, min(100, (topic.mastery_score or 0) + RATING_TO_PROGRESS[safe_rating]))
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
@@ -829,11 +841,11 @@ class StudyFlowBackend(QObject):
     @Slot(str)
     def markTaskDone(self, task_id: str) -> None:
         with self._db() as db:
-            revision = db.get(Revision, task_id)
+            revision = db.get(Revision, int(task_id))
             if revision is None:
                 return
             SchedulerService(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=datetime.now())
-            revision.topic.progress = max(0, min(100, (revision.topic.progress or 0) + RATING_TO_PROGRESS[3]))
+            revision.topic.mastery_score = max(0, min(100, (revision.topic.mastery_score or 0) + RATING_TO_PROGRESS[3]))
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
@@ -842,12 +854,12 @@ class StudyFlowBackend(QObject):
     @Slot(str, int)
     def completeRevision(self, task_id: str, rating: int) -> None:
         with self._db() as db:
-            revision = db.get(Revision, task_id)
+            revision = db.get(Revision, int(task_id))
             if revision is None:
                 return
             safe_rating = max(1, min(int(rating), 4))
-            SchedulerService(db).record_revision(revision.id, rating=ConfidenceRating(str(safe_rating)), completed_at=datetime.now())
-            revision.topic.progress = max(0, min(100, (revision.topic.progress or 0) + RATING_TO_PROGRESS[safe_rating]))
+            SchedulerService(db).record_revision(revision.id, rating=_rating_from_int(safe_rating), completed_at=datetime.now())
+            revision.topic.mastery_score = max(0, min(100, (revision.topic.mastery_score or 0) + RATING_TO_PROGRESS[safe_rating]))
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
@@ -866,12 +878,10 @@ class StudyFlowBackend(QObject):
     @Slot(str)
     def skipTask(self, task_id: str) -> None:
         with self._db() as db:
-            revision = db.get(Revision, task_id)
-            if revision is None or revision.is_completed:
+            revision = db.get(Revision, int(task_id))
+            if revision is None or revision.status != "open":
                 return
-            revision.is_missed = True
-            revision.scheduled_date = revision.scheduled_date + timedelta(days=1)
-            revision.topic.fsrs_due_date = revision.scheduled_date
+            SchedulerService(db).reschedule_after_miss(revision.id, reschedule_from=self._today + timedelta(days=1))
         self._emit()
 
     @Slot()
@@ -890,9 +900,9 @@ class StudyFlowBackend(QObject):
         with self._db() as db:
             service = TopicService(db, scheduler=SchedulerService(db))
             if topic_id:
-                service.update_topic(topic_id, name=name.strip(), difficulty=level, parent_topic_id=parent_topic_id.strip() or None, notes=notes.strip())
+                service.update_topic(topic_id, name=name.strip(), difficulty=level, notes=notes.strip())
             else:
-                service.create_topic(subject_id=subject_id, name=name.strip(), difficulty=level, parent_topic_id=parent_topic_id.strip() or None, notes=notes.strip())
+                service.create_topic(subject_id=subject_id, name=name.strip(), difficulty=level, notes=notes.strip())
         self._emit()
 
     @Slot(str)

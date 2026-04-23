@@ -306,7 +306,13 @@ Rectangle {
                                     Layout.fillWidth: true
                                     spacing: 10
 
-                                    Rectangle { width: 8; height: 8; radius: 4; color: modelData.color; anchors.verticalCenter: parent.verticalCenter }
+                                    Rectangle {
+                                        width: 8
+                                        height: 8
+                                        radius: 4
+                                        color: modelData.color
+                                        Layout.alignment: Qt.AlignVCenter
+                                    }
 
                                     ColumnLayout {
                                         Layout.fillWidth: true

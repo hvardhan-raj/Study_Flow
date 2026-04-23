@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -73,6 +73,29 @@ SessionLocal = create_session_factory(engine)
 
 def init_database() -> None:
     settings.database_path.parent.mkdir(parents=True, exist_ok=True)
-    # Runtime startup uses the current standalone metadata directly. For old
-    # development databases, dropping and recreating the local file is the safe path.
+    if _database_needs_reset():
+        engine.dispose()
+        if settings.database_path.exists():
+            settings.database_path.unlink()
     Base.metadata.create_all(engine)
+
+
+def _database_needs_reset() -> bool:
+    if not settings.database_path.exists():
+        return False
+
+    inspector = inspect(engine)
+    required_columns = {
+        "subjects": {"id", "name", "color", "archived", "created_at", "updated_at"},
+        "topics": {"id", "subject_id", "name", "difficulty", "status", "mastery_score", "review_count"},
+        "revisions": {"id", "topic_id", "due_at", "status", "interval_days", "stability"},
+    }
+    table_names = set(inspector.get_table_names())
+    if not set(required_columns).issubset(table_names):
+        return True
+
+    for table_name, columns in required_columns.items():
+        existing = {column["name"] for column in inspector.get_columns(table_name)}
+        if not columns.issubset(existing):
+            return True
+    return False

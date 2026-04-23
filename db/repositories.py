@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime, time
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from models import ConfidenceRating, DifficultyLevel, Revision, StudySession, Subject, Topic
+from models import ConfidenceRating, Revision, StudySession, Subject, Topic
 
 
 class TopicRepository:
@@ -20,12 +20,7 @@ class TopicRepository:
         exam_date: date | None = None,
         description: str | None = None,
     ) -> Subject:
-        subject = Subject(
-            name=name,
-            color_tag=color_tag,
-            exam_date=exam_date,
-            description=description,
-        )
+        subject = Subject(name=name, color=color_tag, exam_date=exam_date)
         self.session.add(subject)
         self.session.flush()
         return subject
@@ -33,36 +28,37 @@ class TopicRepository:
     def create_topic(
         self,
         *,
-        subject_id: str,
+        subject_id: int | str,
         name: str,
-        difficulty: DifficultyLevel = DifficultyLevel.MEDIUM,
-        parent_topic_id: str | None = None,
+        difficulty: str = "medium",
+        parent_topic_id: int | str | None = None,
         notes: str | None = None,
     ) -> Topic:
+        level = difficulty.value if hasattr(difficulty, "value") else str(difficulty).lower()
         topic = Topic(
-            subject_id=subject_id,
-            parent_topic_id=parent_topic_id,
+            subject_id=int(subject_id),
             name=name,
-            difficulty=difficulty,
-            notes=notes,
+            description=notes,
+            difficulty=level,
+            estimated_minutes={"easy": 15, "medium": 25, "hard": 35}.get(level, 25),
         )
         self.session.add(topic)
         self.session.flush()
         return topic
 
-    def get_topic(self, topic_id: str) -> Topic | None:
-        return self.session.get(Topic, topic_id)
+    def get_topic(self, topic_id: int | str) -> Topic | None:
+        return self.session.get(Topic, int(topic_id))
 
-    def list_topics_by_subject(self, subject_id: str) -> list[Topic]:
-        stmt = select(Topic).where(Topic.subject_id == subject_id).order_by(Topic.sort_order, Topic.name)
+    def list_topics_by_subject(self, subject_id: int | str) -> list[Topic]:
+        stmt = select(Topic).where(Topic.subject_id == int(subject_id)).order_by(Topic.name)
         return list(self.session.scalars(stmt))
 
     def list_subjects(self) -> list[Subject]:
         stmt = select(Subject).order_by(Subject.name)
         return list(self.session.scalars(stmt))
 
-    def delete_topic(self, topic_id: str) -> None:
-        topic = self.session.get(Topic, topic_id)
+    def delete_topic(self, topic_id: int | str) -> None:
+        topic = self.session.get(Topic, int(topic_id))
         if topic is not None:
             self.session.delete(topic)
             self.session.flush()
@@ -75,46 +71,46 @@ class RevisionRepository:
     def create_revision(
         self,
         *,
-        topic_id: str,
+        topic_id: int | str,
         scheduled_date: date,
         confidence_rating: ConfidenceRating | None = None,
-        study_session_id: str | None = None,
+        study_session_id: int | str | None = None,
     ) -> Revision:
         revision = Revision(
-            topic_id=topic_id,
-            scheduled_date=scheduled_date,
-            confidence_rating=confidence_rating,
-            study_session_id=study_session_id,
+            topic_id=int(topic_id),
+            due_at=datetime.combine(scheduled_date, time(11, 0)),
+            status="open",
+            rating=confidence_rating.value if confidence_rating else None,
         )
         self.session.add(revision)
         self.session.flush()
         return revision
 
-    def get_revision(self, revision_id: str) -> Revision | None:
-        return self.session.get(Revision, revision_id)
+    def get_revision(self, revision_id: int | str) -> Revision | None:
+        return self.session.get(Revision, int(revision_id))
 
     def list_due_revisions(self, due_on_or_before: date) -> list[Revision]:
         stmt = (
             select(Revision)
-            .where(Revision.is_completed.is_(False), Revision.scheduled_date <= due_on_or_before)
-            .order_by(Revision.scheduled_date)
+            .where(Revision.status == "open", func.date(Revision.due_at) <= due_on_or_before.isoformat())
+            .order_by(Revision.due_at)
         )
         return list(self.session.scalars(stmt))
 
     def mark_completed(
         self,
-        revision_id: str,
+        revision_id: int | str,
         *,
         confidence_rating: ConfidenceRating,
         completed_at: datetime | None = None,
     ) -> Revision:
-        revision = self.session.get(Revision, revision_id)
+        revision = self.session.get(Revision, int(revision_id))
         if revision is None:
             raise ValueError(f"Revision {revision_id} does not exist")
 
-        revision.is_completed = True
-        revision.completed_at = completed_at or datetime.now(UTC).replace(tzinfo=None)
-        revision.confidence_rating = confidence_rating
+        revision.status = "completed"
+        revision.completed_at = completed_at or datetime.now()
+        revision.rating = confidence_rating.value
         self.session.flush()
         return revision
 
@@ -128,23 +124,26 @@ class SessionRepository:
         *,
         started_at: datetime,
         ended_at: datetime | None = None,
-        topic_id: str | None = None,
+        topic_id: int | str | None = None,
         topics_attempted: int = 0,
         topics_completed: int = 0,
     ) -> StudySession:
+        duration_minutes = None
+        if ended_at is not None:
+            duration_minutes = max(0, round((ended_at - started_at).total_seconds() / 60))
         study_session = StudySession(
-            topic_id=topic_id,
+            topic_id=int(topic_id) if topic_id is not None else None,
             started_at=started_at,
             ended_at=ended_at,
-            topics_attempted=topics_attempted,
-            topics_completed=topics_completed,
+            duration_minutes=duration_minutes,
+            session_type="study",
         )
         self.session.add(study_session)
         self.session.flush()
         return study_session
 
-    def get_session(self, session_id: str) -> StudySession | None:
-        return self.session.get(StudySession, session_id)
+    def get_session(self, session_id: int | str) -> StudySession | None:
+        return self.session.get(StudySession, int(session_id))
 
     def list_sessions(self) -> list[StudySession]:
         stmt = select(StudySession).order_by(StudySession.started_at)
