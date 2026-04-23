@@ -16,8 +16,8 @@ Rectangle {
             pageSubtitle: "DAILY REVISION BOARD"
             rightContent: [
                 AppButton {
-                    label: "+ Start Session"
-                    variant: "primary"
+                    label: backend.activeSession.label
+                    variant: backend.activeSession.active ? "danger" : "primary"
                     small: true
                     onClicked: backend.startSession()
                 }

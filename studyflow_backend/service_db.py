@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from db.session import init_database, session_scope
 from llm import AssistantContext, LLMService
-from models import ConfidenceRating, DifficultyLevel, Revision, Subject, Topic
+from models import ConfidenceRating, DifficultyLevel, Revision, StudySession, Subject, Topic
 from nlp import NLPService, load_training_examples, train_model
 from services import (
     DesktopNotifier,
@@ -135,6 +135,7 @@ class StudyFlowBackend(QObject):
         self._assistant_messages = [self._normalize_assistant_message(message) for message in assistant_messages]
         self._suggestion_dismissed = bool(state.get("suggestion_dismissed", False))
         self._study_minutes = list(state.get("study_minutes", []))
+        self._active_session = self._normalize_active_session(state.get("active_session"))
         self._notifications = [
             self._normalize_notification(notification, index)
             for index, notification in enumerate(state.get("notifications", build_default_notifications()))
@@ -150,6 +151,7 @@ class StudyFlowBackend(QObject):
                 "assistant_messages": self._assistant_messages,
                 "suggestion_dismissed": self._suggestion_dismissed,
                 "study_minutes": self._study_minutes,
+                "active_session": self._active_session,
                 "notifications": self._notifications,
             },
         )
@@ -211,6 +213,52 @@ class StudyFlowBackend(QObject):
         if not isinstance(payload["notification_time"], str) or ":" not in payload["notification_time"]:
             payload["notification_time"] = "08:00"
         return payload
+
+    def _normalize_active_session(self, active_session: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(active_session, dict):
+            return None
+        session_id = active_session.get("id")
+        started_at = active_session.get("started_at")
+        topic = active_session.get("topic", "")
+        subject = active_session.get("subject", "")
+        try:
+            parsed_id = int(session_id)
+            parsed_started_at = datetime.fromisoformat(str(started_at))
+        except (TypeError, ValueError):
+            return None
+        return {
+            "id": parsed_id,
+            "started_at": parsed_started_at.isoformat(),
+            "topic": str(topic or ""),
+            "subject": str(subject or ""),
+        }
+
+    def _active_session_payload(self) -> dict[str, Any]:
+        active_session = self._active_session
+        if active_session is None:
+            return {
+                "active": False,
+                "label": "Start Session",
+                "detail": "No active study session",
+                "topic": "",
+                "subject": "",
+                "elapsedMinutes": 0,
+            }
+        started_at = datetime.fromisoformat(active_session["started_at"])
+        elapsed_minutes = max(0, round((datetime.now() - started_at).total_seconds() / 60))
+        topic = active_session.get("topic", "")
+        subject = active_session.get("subject", "")
+        detail = f"{elapsed_minutes} min on {topic}" if topic else f"{elapsed_minutes} min active"
+        if subject:
+            detail += f" ({subject})"
+        return {
+            "active": True,
+            "label": "End Session",
+            "detail": detail,
+            "topic": topic,
+            "subject": subject,
+            "elapsedMinutes": elapsed_minutes,
+        }
 
     def _notification_timestamp(self, index: int) -> datetime:
         return datetime.combine(self._today, time(12, 0)) - timedelta(minutes=index)
@@ -308,6 +356,9 @@ class StudyFlowBackend(QObject):
 
     def _open_task_rows(self) -> list[dict[str, Any]]:
         return [task for task in self._tasks if not task["completed"]]
+
+    def _is_task_completed(self, task: dict[str, Any]) -> bool:
+        return bool(task.get("completed"))
 
     def _task_payload(self, task: dict[str, Any]) -> dict[str, Any]:
         return self._view_model.task_payload(task)
@@ -455,6 +506,10 @@ class StudyFlowBackend(QObject):
         if overdue:
             return {"emoji": "!", "headline": f"{overdue} overdue review{'s' if overdue != 1 else ''} need attention first", "detail": "Clear the oldest cards before starting new material."}
         return {"emoji": "*", "headline": f"{due_today} review{'s' if due_today != 1 else ''} queued for today", "detail": "Stay in rhythm with short, consistent revision sessions."}
+
+    @Property("QVariantMap", notify=stateChanged)
+    def activeSession(self) -> dict[str, Any]:
+        return self._active_session_payload()
 
     @Property("QVariantMap", notify=stateChanged)
     def dashboardFocus(self) -> dict[str, Any]:
@@ -856,7 +911,69 @@ class StudyFlowBackend(QObject):
 
     @Slot()
     def startSession(self) -> None:
-        self._add_notification("Session Started", "Pick a due topic and rate it when you finish.", "play_arrow", "#3B82F6")
+        if self._active_session is not None:
+            self.stopSession()
+            return
+
+        with self._db() as db:
+            stmt = (
+                select(Revision)
+                .options(joinedload(Revision.topic).joinedload(Topic.subject))
+                .where(Revision.status == "open")
+                .order_by(Revision.due_at, Revision.created_at)
+            )
+            revision = db.scalars(stmt).first()
+            topic = revision.topic if revision is not None else None
+            subject = topic.subject if topic is not None else None
+            started_at = datetime.now()
+            study_session = StudySession(
+                subject_id=subject.id if subject is not None else None,
+                topic_id=topic.id if topic is not None else None,
+                started_at=started_at,
+                session_type="study",
+                notes="Started from dashboard",
+            )
+            db.add(study_session)
+            db.flush()
+            self._active_session = {
+                "id": study_session.id,
+                "started_at": started_at.isoformat(),
+                "topic": topic.name if topic is not None else "",
+                "subject": subject.name if subject is not None else "",
+            }
+
+        session_info = self._active_session_payload()
+        self._save()
+        self._emit()
+        detail = f"Focusing on {session_info['topic']}." if session_info["topic"] else "Pick a due topic and rate it when you finish."
+        self._add_notification("Session Started", detail, "play_arrow", "#3B82F6")
+
+    @Slot()
+    def stopSession(self) -> None:
+        active_session = self._active_session
+        if active_session is None:
+            return
+
+        started_at = datetime.fromisoformat(active_session["started_at"])
+        ended_at = datetime.now()
+        duration_minutes = max(1, round((ended_at - started_at).total_seconds() / 60))
+        with self._db() as db:
+            session_row = db.get(StudySession, int(active_session["id"]))
+            if session_row is not None:
+                session_row.ended_at = ended_at
+                session_row.duration_minutes = duration_minutes
+                session_row.focus_score = float(self._average_confidence_pct())
+                if active_session.get("topic"):
+                    session_row.notes = f"Completed dashboard session on {active_session['topic']}"
+
+        self._study_minutes.append(duration_minutes)
+        self._study_minutes = self._study_minutes[-14:]
+        session_topic = active_session.get("topic", "")
+        self._active_session = None
+        self._save()
+        self._emit()
+        detail = f"Logged {duration_minutes} minutes on {session_topic}." if session_topic else f"Logged {duration_minutes} study minutes."
+        self._add_notification("Session Ended", detail, "stop", "#10B981")
 
     @Slot(str, str, str, str, str, str)
     def upsertTopic(self, topic_id: str, name: str, subject_id: str, difficulty: str, parent_topic_id: str, notes: str) -> None:

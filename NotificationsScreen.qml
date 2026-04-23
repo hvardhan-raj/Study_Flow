@@ -13,7 +13,7 @@ Rectangle {
         PageHeader {
             Layout.fillWidth: true
             pageTitle: "Notifications & Alerts"
-            pageSubtitle: "REMINDERS, DIGESTS, AND SMART STUDY NUDGES"
+            pageSubtitle: "REMINDERS & DIGESTS"
             rightContent: [
                 AppButton { label: "Export Calendar";   variant: "secondary"; small: true; onClicked: backend.exportCalendar() },
                 AppButton { label: "Refresh";           variant: "secondary"; small: true; onClicked: backend.refreshReminders() },
