@@ -53,6 +53,12 @@ def main() -> int:
     reminder_scheduler.jobRequested.connect(backend.runReminderCheck, Qt.ConnectionType.QueuedConnection)
     reminder_scheduler.start()
     app.aboutToQuit.connect(reminder_scheduler.stop)
+    # Keep Python-owned QObjects strongly referenced for the full Qt app lifetime.
+    app._backend = backend
+    app._navigation = navigation
+    app._reminder_scheduler = reminder_scheduler
+    engine._backend = backend
+    engine._navigation = navigation
     engine.rootContext().setContextProperty("backend", backend)
     engine.rootContext().setContextProperty("navigation", navigation)
     engine.addImportPath(str(runtime_dir))

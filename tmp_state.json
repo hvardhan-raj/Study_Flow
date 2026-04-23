@@ -1,0 +1,144 @@
+{
+  "settings": {
+    "scheduling": {
+      "algorithm": "SM-2 (Spaced Repetition)",
+      "daily_goal": "2 hours",
+      "session_length": "25 min (Pomodoro)",
+      "weekend_sessions": false
+    },
+    "ai": {
+      "model": "Local study assistant",
+      "suggestions": true,
+      "auto_reschedule": false
+    },
+    "appearance": {
+      "theme": "Light",
+      "font_size": "Medium",
+      "compact_ui": false
+    },
+    "notifications": {
+      "push_alerts": true,
+      "email_digest": false,
+      "reminder_before": "30 minutes",
+      "enabled": true
+    },
+    "data": {
+      "export": "CSV / JSON",
+      "backup": "Local only"
+    },
+    "reminders": true,
+    "auto_schedule": true
+  },
+  "alert_settings": {
+    "due_today": true,
+    "overdue": true,
+    "ai_suggestions": true,
+    "weekly_reports": true,
+    "session_reminders": false,
+    "streak_reminders": false
+  },
+  "reminder_preferences": {
+    "enabled": true,
+    "notification_time": "08:00",
+    "minimum_due_for_alert": 1,
+    "desktop_notifications": false
+  },
+  "assistant_messages": [
+    {
+      "role": "assistant",
+      "text": "I can help you plan today\u2019s reviews.",
+      "source": "system",
+      "timestamp": "2026-04-23T22:37:01.202244",
+      "time": "22:37"
+    }
+  ],
+  "suggestion_dismissed": false,
+  "study_minutes": [
+    25,
+    48,
+    30,
+    62,
+    40,
+    55,
+    38,
+    72,
+    46,
+    58,
+    34,
+    66,
+    41,
+    60
+  ],
+  "notifications": [
+    {
+      "id": "smart-weekly-2026-17",
+      "title": "Weekly Report Ready",
+      "body": "You logged 377 minutes in recent sessions.",
+      "icon": "R",
+      "color": "#8B5CF6",
+      "read": true,
+      "timestamp": "2026-04-23T22:37:01.237617",
+      "time": "1m ago"
+    },
+    {
+      "id": "smart-due-2026-04-23",
+      "title": "Today's Revision Queue",
+      "body": "5 reviews due today. Start with Magnetism.",
+      "icon": "T",
+      "color": "#3B82F6",
+      "read": false,
+      "timestamp": "2026-04-23T22:37:01.237595",
+      "time": "1m ago"
+    },
+    {
+      "id": "notif-1",
+      "icon": "!",
+      "title": "Overdue: Deadlocks",
+      "body": "This topic slipped by two days. Review it before starting something new.",
+      "time": "10h ago",
+      "read": false,
+      "color": "#EF4444",
+      "timestamp": "2026-04-23T12:00:00"
+    },
+    {
+      "id": "notif-2",
+      "icon": "T",
+      "title": "Reminder: SQL Queries",
+      "body": "Your next revision starts in 30 minutes.",
+      "time": "10h ago",
+      "read": false,
+      "color": "#F59E0B",
+      "timestamp": "2026-04-23T11:59:00"
+    },
+    {
+      "id": "notif-3",
+      "icon": "AI",
+      "title": "AI Suggestion",
+      "body": "Move Dynamic Programming earlier for better recall based on recent sessions.",
+      "time": "10h ago",
+      "read": false,
+      "color": "#3B82F6",
+      "timestamp": "2026-04-23T11:58:00"
+    },
+    {
+      "id": "notif-4",
+      "icon": "OK",
+      "title": "Session Complete",
+      "body": "You finished Process Scheduling and rated the session 4 out of 5.",
+      "time": "10h ago",
+      "read": true,
+      "color": "#10B981",
+      "timestamp": "2026-04-23T11:57:00"
+    },
+    {
+      "id": "notif-5",
+      "icon": "R",
+      "title": "Weekly Report Ready",
+      "body": "Your study report is ready to review.",
+      "time": "10h ago",
+      "read": true,
+      "color": "#8B5CF6",
+      "timestamp": "2026-04-23T11:56:00"
+    }
+  ]
+}
