@@ -106,7 +106,7 @@ class SchedulerService:
 
         revision = Revision(
             topic_id=topic.id,
-            due_at=self._combine_due_datetime(due_day, difficulty),
+            due_at=self._next_available_due_datetime(due_day, difficulty),
             status="open",
             interval_days=float(interval_days),
             previous_interval_days=0.0,
@@ -160,7 +160,7 @@ class SchedulerService:
 
         next_revision = Revision(
             topic_id=topic.id,
-            due_at=self._combine_due_datetime(review_day + timedelta(days=snapshot.interval_days), self._difficulty_key(topic)),
+            due_at=self._next_available_due_datetime(review_day + timedelta(days=snapshot.interval_days), self._difficulty_key(topic), exclude_revision_id=revision.id),
             status="open",
             scheduled_from_revision_id=revision.id,
             interval_days=float(snapshot.interval_days),
@@ -222,7 +222,7 @@ class SchedulerService:
 
         replacement = Revision(
             topic_id=topic.id,
-            due_at=self._combine_due_datetime(current_day + timedelta(days=next_interval), self._difficulty_key(topic)),
+            due_at=self._next_available_due_datetime(current_day + timedelta(days=next_interval), self._difficulty_key(topic), exclude_revision_id=revision.id),
             status="open",
             scheduled_from_revision_id=revision.id,
             interval_days=float(next_interval),
@@ -317,6 +317,36 @@ class SchedulerService:
 
     def _combine_due_datetime(self, due_day: date, difficulty: str) -> datetime:
         return datetime.combine(due_day, time(REVIEW_HOUR_BY_DIFFICULTY.get(difficulty, 11), 0))
+
+    def _next_available_due_datetime(
+        self,
+        due_day: date,
+        difficulty: str,
+        *,
+        exclude_revision_id: int | None = None,
+    ) -> datetime:
+        preferred_dt = self._combine_due_datetime(due_day, difficulty)
+        stmt = select(Revision.due_at).where(func.date(Revision.due_at) == due_day.isoformat())
+        if exclude_revision_id is not None:
+            stmt = stmt.where(Revision.id != int(exclude_revision_id))
+        existing = {item.replace(second=0, microsecond=0) for item in self.session.scalars(stmt)}
+        if preferred_dt not in existing:
+            return preferred_dt
+
+        candidate_hours = range(8, 21)
+        ordered_slots = sorted(
+            (datetime.combine(due_day, time(hour, minute)) for hour in candidate_hours for minute in (0, 30)),
+            key=lambda slot: (abs((slot - preferred_dt).total_seconds()), slot),
+        )
+        for slot in ordered_slots:
+            if slot not in existing:
+                return slot
+
+        latest = max(existing) if existing else preferred_dt
+        overflow = latest + timedelta(minutes=30)
+        if overflow.date() != due_day:
+            return datetime.combine(due_day, time(20, 30))
+        return overflow
 
     def _base_difficulty_adjustment(self, topic: Topic) -> float:
         return {

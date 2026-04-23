@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -560,21 +560,48 @@ class StudyFlowBackend(QObject):
     def curriculumSearch(self) -> str:
         return self._curriculum_search
 
+    def _curriculum_subject_records(self) -> list[dict[str, Any]]:
+        with self._db() as db:
+            stmt = select(Subject).where(func.coalesce(Subject.archived, 0) == 0).order_by(Subject.name)
+            subjects = list(db.scalars(stmt))
+
+        filtered_topics = self._filtered_topics()
+        topics_by_subject: dict[str, list[dict[str, Any]]] = {}
+        for topic in filtered_topics:
+            topics_by_subject.setdefault(str(topic["subjectId"]), []).append(topic)
+
+        needle = self._curriculum_search.strip().lower()
+        show_empty_subjects = self._curriculum_filter == "All"
+        rows: list[dict[str, Any]] = []
+        for subject in subjects:
+            subject_id = str(subject.id)
+            subject_topics = topics_by_subject.get(subject_id, [])
+            subject_match = bool(needle) and needle in (subject.name or "").lower()
+            if not subject_topics and not (show_empty_subjects and (not needle or subject_match)):
+                continue
+            meta = self._subject_meta(subject, name=subject.name, color=subject.color)
+            rows.append({
+                "subjectId": subject_id,
+                "subjectName": subject.name,
+                "iconText": meta.icon,
+                "accentColor": meta.color,
+                "topicCount": len(subject_topics),
+                "topics": subject_topics,
+            })
+        return rows
+
     @Property("QVariantList", notify=stateChanged)
     def curriculumSubjects(self) -> list[dict[str, Any]]:
-        subjects: dict[str, dict[str, Any]] = {}
         filtered_topics = self._filtered_topics()
         lookup = {topic["id"]: topic for topic in filtered_topics}
-        for topic in filtered_topics:
-            key = topic["subjectId"]
-            if key not in subjects:
-                meta = self._subject_meta(name=topic["subject"], color=topic["subjectMeta"]["color"])
-                subjects[key] = {"subjectId": key, "subjectName": topic["subject"], "iconText": meta.icon, "accentColor": topic["subjectMeta"]["color"], "topicCount": 0, "topics": []}
-            subjects[key]["topicCount"] += 1
-        for topic in filtered_topics:
-            if topic.get("parent_topic_id") is None:
-                subjects[topic["subjectId"]]["topics"].append(self._topic_tree_node(topic, lookup))
-        return list(subjects.values())
+        subjects = self._curriculum_subject_records()
+        for subject in subjects:
+            subject["topics"] = [
+                self._topic_tree_node(topic, lookup)
+                for topic in subject["topics"]
+                if topic.get("parent_topic_id") is None
+            ]
+        return subjects
 
     @Property("QVariantMap", notify=stateChanged)
     def curriculumSummary(self) -> dict[str, Any]:
@@ -587,7 +614,7 @@ class StudyFlowBackend(QObject):
 
     @Property("QVariantList", notify=stateChanged)
     def curriculumSubjectOptions(self) -> list[dict[str, Any]]:
-        return [{"id": subject["subjectId"], "name": subject["subjectName"]} for subject in self.curriculumSubjects]
+        return [{"id": subject["subjectId"], "name": subject["subjectName"]} for subject in self._curriculum_subject_records()]
 
     @Property("QVariantList", notify=stateChanged)
     def weekCompletion(self) -> list[dict[str, Any]]:
@@ -777,8 +804,12 @@ class StudyFlowBackend(QObject):
         clean_name = name.strip()
         if not clean_name:
             return
-        with self._db() as db:
-            SubjectService(db).create_subject(name=clean_name, color_tag=color.strip() or "#3B82F6")
+        try:
+            with self._db() as db:
+                SubjectService(db).create_subject(name=clean_name, color_tag=color.strip() or "#3B82F6")
+        except IntegrityError:
+            logger.warning("Subject already exists", extra={"subject": clean_name})
+            return
         self._emit()
 
     @Slot(str, str)
@@ -814,7 +845,7 @@ class StudyFlowBackend(QObject):
 
     @Slot(result="QVariantList")
     def getSubjects(self) -> list[dict[str, Any]]:
-        return [{"id": item["subjectId"], "name": item["subjectName"], "color": item["accentColor"]} for item in self.curriculumSubjects]
+        return [{"id": item["subjectId"], "name": item["subjectName"], "color": item["accentColor"]} for item in self._curriculum_subject_records()]
 
     @Slot(result="QVariantList")
     def getTopics(self) -> list[dict[str, Any]]:
