@@ -8,6 +8,8 @@ Rectangle {
 
     property string editingTopicId: ""
     property string editingParentId: ""
+    property string deletingSubjectId: ""
+    property string deletingSubjectName: ""
 
     function openSubjectDialog() {
         subjectNameField.text = ""
@@ -54,6 +56,12 @@ Rectangle {
                 return nested
         }
         return null
+    }
+
+    function confirmDeleteSubject(subjectId, subjectName) {
+        deletingSubjectId = subjectId || ""
+        deletingSubjectName = subjectName || ""
+        deleteSubjectDialog.open()
     }
 
     ColumnLayout {
@@ -201,6 +209,12 @@ Rectangle {
                                     small: true
                                     onClicked: root.openTopicDialog("", "", subjectData.subjectId)
                                 }
+                                AppButton {
+                                    label: "Delete"
+                                    variant: "danger"
+                                    small: true
+                                    onClicked: root.confirmDeleteSubject(subjectData.subjectId, subjectData.subjectName)
+                                }
                             }
 
                             Repeater {
@@ -231,6 +245,47 @@ Rectangle {
                 }
 
                 Item { height: 16 }
+            }
+        }
+    }
+
+    Dialog {
+        id: deleteSubjectDialog
+        modal: true
+        width: 380
+        title: "Delete Subject"
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: {
+            if (root.deletingSubjectId.length > 0) {
+                backend.deleteSubject(root.deletingSubjectId)
+            }
+            root.deletingSubjectId = ""
+            root.deletingSubjectName = ""
+        }
+        onRejected: {
+            root.deletingSubjectId = ""
+            root.deletingSubjectName = ""
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 10
+
+            Text {
+                Layout.fillWidth: true
+                text: "Delete \"" + root.deletingSubjectName + "\" and all its topics?"
+                wrapMode: Text.WordWrap
+                font.pixelSize: 13
+                font.bold: true
+                color: "#1A2332"
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: "This removes the subject, its topics, and their revision history from the local database."
+                wrapMode: Text.WordWrap
+                font.pixelSize: 11
+                color: "#64748B"
             }
         }
     }
