@@ -6,6 +6,11 @@ Rectangle {
     id: root
     color: "#F4F6FA"
     property bool composerOpen: false
+    readonly property int difficultyColWidth: 110
+    readonly property int scheduledColWidth: 130
+    readonly property int confidenceColWidth: 100
+    readonly property int statusColWidth: 100
+    readonly property int actionsColWidth: 150
 
     ColumnLayout {
         anchors.fill: parent
@@ -191,28 +196,50 @@ Rectangle {
 
                     RowLayout {
                         anchors { fill: parent; leftMargin: 24; rightMargin: 24 }
-                        spacing: 0
+                        spacing: 12
 
-                        Rectangle { width: 16; height: 16; radius: 4; color: "transparent"; border.color: "#CBD5E1"; border.width: 1 }
-                        Item { width: 12 }
-
-                        Repeater {
-                            model: [
-                                { lbl: "TOPIC / SUBJECT", fw: 3 },
-                                { lbl: "DIFFICULTY", fw: 1 },
-                                { lbl: "SCHEDULED", fw: 1 },
-                                { lbl: "CONFIDENCE", fw: 1 },
-                                { lbl: "STATUS", fw: 1 },
-                                { lbl: "ACTIONS", fw: 1 }
-                            ]
-                            delegate: Text {
-                                Layout.fillWidth: modelData.fw > 1
-                                Layout.preferredWidth: modelData.fw === 1 ? 80 : -1
-                                text: modelData.lbl
-                                font.pixelSize: 9
-                                font.letterSpacing: 1
-                                color: "#94A3B8"
-                            }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "TOPIC / SUBJECT"
+                            font.pixelSize: 9
+                            font.letterSpacing: 1
+                            color: "#94A3B8"
+                        }
+                        Text {
+                            Layout.preferredWidth: root.difficultyColWidth
+                            text: "DIFFICULTY"
+                            font.pixelSize: 9
+                            font.letterSpacing: 1
+                            color: "#94A3B8"
+                        }
+                        Text {
+                            Layout.preferredWidth: root.scheduledColWidth
+                            text: "SCHEDULED"
+                            font.pixelSize: 9
+                            font.letterSpacing: 1
+                            color: "#94A3B8"
+                        }
+                        Text {
+                            Layout.preferredWidth: root.confidenceColWidth
+                            text: "CONFIDENCE"
+                            font.pixelSize: 9
+                            font.letterSpacing: 1
+                            color: "#94A3B8"
+                        }
+                        Text {
+                            Layout.preferredWidth: root.statusColWidth
+                            text: "STATUS"
+                            font.pixelSize: 9
+                            font.letterSpacing: 1
+                            color: "#94A3B8"
+                        }
+                        Text {
+                            Layout.preferredWidth: root.actionsColWidth
+                            horizontalAlignment: Text.AlignHCenter
+                            text: "ACTIONS"
+                            font.pixelSize: 9
+                            font.letterSpacing: 1
+                            color: "#94A3B8"
                         }
                     }
                 }
@@ -223,29 +250,53 @@ Rectangle {
                     delegate: Rectangle {
                         property int taskConfidence: modelData.confidence
                         Layout.fillWidth: true
-                        height: 56
+                        height: 66
                         color: index % 2 === 0 ? "#FFFFFF" : "#FAFBFD"
                         border.color: "#F1F5F9"
 
                         RowLayout {
                             anchors { fill: parent; leftMargin: 24; rightMargin: 24 }
-                            spacing: 0
-
-                            Rectangle { width: 16; height: 16; radius: 4; color: "transparent"; border.color: "#CBD5E1"; border.width: 1 }
-                            Item { width: 12 }
+                            spacing: 12
 
                             ColumnLayout {
                                 Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignVCenter
                                 spacing: 2
-                                Text { text: modelData.topic; font.pixelSize: 12; font.bold: true; color: "#1A2332"; elide: Text.ElideRight }
-                                TagPill { tagText: modelData.subjectShort; tagColor: modelData.subjectColor; implicitHeight: 16 }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.topic
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    color: "#1A2332"
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.subject
+                                    font.pixelSize: 10
+                                    color: modelData.subjectColor
+                                    elide: Text.ElideRight
+                                }
                             }
 
-                            TagPill { Layout.preferredWidth: 80; tagText: modelData.difficulty; tagColor: modelData.difficultyColor }
-                            Text { Layout.preferredWidth: 80; text: modelData.scheduledText; font.pixelSize: 11; color: "#64748B"; elide: Text.ElideRight }
+                            TagPill {
+                                Layout.preferredWidth: root.difficultyColWidth
+                                Layout.alignment: Qt.AlignVCenter
+                                tagText: modelData.difficulty
+                                tagColor: modelData.difficultyColor
+                            }
+                            Text {
+                                Layout.preferredWidth: root.scheduledColWidth
+                                Layout.alignment: Qt.AlignVCenter
+                                text: modelData.scheduledText
+                                font.pixelSize: 11
+                                color: "#64748B"
+                                elide: Text.ElideRight
+                            }
 
                             Row {
-                                Layout.preferredWidth: 80
+                                Layout.preferredWidth: root.confidenceColWidth
+                                Layout.alignment: Qt.AlignVCenter
                                 spacing: 2
                                 Repeater {
                                     model: 5
@@ -253,10 +304,16 @@ Rectangle {
                                 }
                             }
 
-                            TagPill { Layout.preferredWidth: 80; tagText: modelData.status; tagColor: modelData.statusColor }
+                            TagPill {
+                                Layout.preferredWidth: root.statusColWidth
+                                Layout.alignment: Qt.AlignVCenter
+                                tagText: modelData.status
+                                tagColor: modelData.statusColor
+                            }
 
                             RowLayout {
-                                Layout.preferredWidth: 92
+                                Layout.preferredWidth: root.actionsColWidth
+                                Layout.alignment: Qt.AlignVCenter
                                 spacing: 6
                                 AppButton { label: "Review"; variant: "primary"; small: true; onClicked: backend.markTaskDone(modelData.id) }
                                 AppButton { label: "Skip"; variant: "secondary"; small: true; onClicked: backend.skipTask(modelData.id) }

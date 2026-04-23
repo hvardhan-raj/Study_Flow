@@ -850,7 +850,8 @@ class StudyFlowBackend(QObject):
     @Slot()
     def markAllTasksDone(self) -> None:
         for task in self.inboxTasks:
-            if task["status"] in {"Overdue", "Pending"}:
+            raw_task = next((item for item in self._tasks if item["id"] == task["id"]), None)
+            if raw_task is not None and self._task_bucket(raw_task) in {"overdue", "due_today"} and not raw_task["completed"]:
                 self.markTaskDone(task["id"])
 
     @Slot()
