@@ -1,6 +1,8 @@
 from .base import (
     AppSetting,
     Base,
+    ConfidenceRating,
+    DifficultyLevel,
     MODEL_REGISTRY,
     Notification,
     PerformanceLog,
@@ -14,6 +16,8 @@ from .base import (
 __all__ = [
     "AppSetting",
     "Base",
+    "ConfidenceRating",
+    "DifficultyLevel",
     "MODEL_REGISTRY",
     "Notification",
     "PerformanceLog",

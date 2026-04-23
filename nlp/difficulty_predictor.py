@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from config.settings import settings
-from models import DifficultyLevel, NlpFeedback
+from models import DifficultyLevel
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.6
 DEFAULT_MODEL_FILENAME = "difficulty_model.pkl"
@@ -20,6 +20,15 @@ class DifficultyPrediction:
     difficulty: DifficultyLevel | None
     confidence: float
     source: str
+
+
+@dataclass(frozen=True)
+class DifficultyFeedback:
+    topic_name_raw: str
+    predicted_difficulty: DifficultyLevel
+    predicted_confidence: float
+    actual_difficulty: DifficultyLevel
+    used_for_retraining: bool = False
 
 
 @dataclass
@@ -99,8 +108,8 @@ class NLPService:
         predicted_difficulty: DifficultyLevel,
         predicted_confidence: float,
         actual_difficulty: DifficultyLevel,
-    ) -> NlpFeedback:
-        return NlpFeedback(
+    ) -> DifficultyFeedback:
+        return DifficultyFeedback(
             topic_name_raw=topic_name,
             predicted_difficulty=predicted_difficulty,
             predicted_confidence=predicted_confidence,

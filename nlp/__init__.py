@@ -1,4 +1,4 @@
-from .difficulty_predictor import DEFAULT_CONFIDENCE_THRESHOLD, DifficultyPrediction, NLPService
+from .difficulty_predictor import DEFAULT_CONFIDENCE_THRESHOLD, DifficultyFeedback, DifficultyPrediction, NLPService
 from .training import (
     TrainingExample,
     TrainingResult,
@@ -9,6 +9,7 @@ from .training import (
 
 __all__ = [
     "DEFAULT_CONFIDENCE_THRESHOLD",
+    "DifficultyFeedback",
     "DifficultyPrediction",
     "NLPService",
     "TrainingExample",

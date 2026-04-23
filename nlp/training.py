@@ -6,8 +6,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from models import DifficultyLevel, NlpFeedback
-from nlp.difficulty_predictor import NaiveBayesDifficultyModel, NLPService, tokenize
+from models import DifficultyLevel
+from nlp.difficulty_predictor import DifficultyFeedback, NaiveBayesDifficultyModel, NLPService, tokenize
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ def load_training_examples(csv_path: Path) -> list[TrainingExample]:
         ]
 
 
-def feedback_to_examples(feedback_items: list[NlpFeedback]) -> list[TrainingExample]:
+def feedback_to_examples(feedback_items: list[DifficultyFeedback]) -> list[TrainingExample]:
     return [
         TrainingExample(topic_name=item.topic_name_raw, difficulty=item.actual_difficulty)
         for item in feedback_items
