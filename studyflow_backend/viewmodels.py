@@ -58,6 +58,15 @@ class StudyFlowReadModel:
         return max(1, min(score, CONFIDENCE_MAX))
 
     def serialize_topic(self, topic: Topic) -> dict[str, Any]:
+        description = topic.description or ""
+        description_lines = description.splitlines()
+        parent_topic_id = None
+        notes = description
+        if description_lines:
+            first_line = description_lines[0].strip()
+            if first_line.startswith("[parent:") and first_line.endswith("]"):
+                parent_topic_id = first_line[len("[parent:"):-1].strip() or None
+                notes = "\n".join(description_lines[1:]).strip()
         meta = self.subject_meta(topic.subject)
         exam_date_value = topic.exam_date_override or topic.subject.exam_date
         exam_date = exam_date_value.isoformat() if exam_date_value else ""
@@ -72,8 +81,8 @@ class StudyFlowReadModel:
             "difficultyColor": difficulty_color(difficulty),
             "progress": self.progress_for_topic(topic),
             "confidence": self.confidence_for_topic(topic),
-            "notes": topic.description or "",
-            "parent_topic_id": None,
+            "notes": notes,
+            "parent_topic_id": int(parent_topic_id) if parent_topic_id else None,
             "exam_date": exam_date,
             "examDate": exam_date,
             "completion_date": completion_date,
@@ -152,9 +161,37 @@ class StudyFlowReadModel:
     def tasks(self) -> list[dict[str, Any]]:
         return [self.serialize_task(revision) for revision in self.all_revisions()]
 
+    def _mix_subjects(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        buckets: dict[str, list[dict[str, Any]]] = {}
+        subject_order: list[str] = []
+        for task in tasks:
+            subject = str(task["subject"])
+            if subject not in buckets:
+                buckets[subject] = []
+                subject_order.append(subject)
+            buckets[subject].append(task)
+
+        if len(subject_order) <= 1:
+            return tasks
+
+        mixed: list[dict[str, Any]] = []
+        while True:
+            added = False
+            for subject in list(subject_order):
+                queue = buckets.get(subject, [])
+                if not queue:
+                    continue
+                mixed.append(queue.pop(0))
+                added = True
+            if not added:
+                break
+        return mixed
+
     def tasks_for_bucket(self, bucket: str) -> list[dict[str, Any]]:
         items = [task for task in self.tasks() if self.task_bucket(task) == bucket]
         items.sort(key=lambda task: (-self.compute_urgency_score(task), task["scheduled_at"]))
+        if bucket in {"due_today", "upcoming"}:
+            items = self._mix_subjects(items)
         return [self.dashboard_task_payload(task) for task in items]
 
     def filtered_topics(self) -> list[dict[str, Any]]:

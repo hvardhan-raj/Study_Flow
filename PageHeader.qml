@@ -62,7 +62,7 @@ Item {
                 border.color: "#EEF2F8"
                 border.width: 1
 
-                Text { anchors.centerIn: parent; text: "🔔"; font.pixelSize: 13 }
+                AppIcon { anchors.centerIn: parent; name: "bell"; size: 14; tint: "#475569" }
 
                 Rectangle {
                     width: 8; height: 8; radius: 4

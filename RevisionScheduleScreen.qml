@@ -19,7 +19,7 @@ Rectangle {
     function sessionCardColor(session) {
         if (!session)
             return "#3B82F6"
-        return session.color || session.subjectColor || "#3B82F6"
+        return session.statusColor || session.color || session.subjectColor || "#3B82F6"
     }
 
     function sessionBgColor(session) {
@@ -96,13 +96,20 @@ Rectangle {
 
                         Repeater {
                             model: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-                            delegate: Text {
+                            delegate: Rectangle {
                                 Layout.fillWidth: true
-                                text: modelData
-                                font.pixelSize: 10
-                                font.bold: true
-                                color: "#94A3B8"
-                                horizontalAlignment: Text.AlignHCenter
+                                Layout.preferredHeight: 28
+                                radius: 10
+                                color: "#F8FAFC"
+                                border.color: "#E2E8F0"
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                    color: "#94A3B8"
+                                }
                             }
                         }
                     }
@@ -150,6 +157,21 @@ Rectangle {
                                             font.pixelSize: 10
                                             font.bold: true
                                             color: modelData.isSelected ? "#FFFFFF" : "#2563EB"
+                                        }
+                                    }
+
+                                    Row {
+                                        visible: modelData.isValid && modelData.indicatorColors && modelData.indicatorColors.length > 0
+                                        spacing: 3
+
+                                        Repeater {
+                                            model: modelData.indicatorColors || []
+                                            delegate: Rectangle {
+                                                width: 6
+                                                height: 6
+                                                radius: 3
+                                                color: modelData
+                                            }
                                         }
                                     }
 
@@ -391,7 +413,7 @@ Rectangle {
                                         Text {
                                             text: modelData.subject + " • " + modelData.when
                                             font.pixelSize: 10
-                                            color: "#94A3B8"
+                                            color: modelData.statusColor || "#94A3B8"
                                             elide: Text.ElideRight
                                             Layout.fillWidth: true
                                         }

@@ -21,9 +21,10 @@ Rectangle {
             pageTitle: "Task Inbox"
             pageSubtitle: "PENDING REVISIONS"
             rightContent: [
-                AppButton { label: "Mark All Done"; variant: "secondary"; small: true; onClicked: backend.markAllTasksDone() },
+                AppButton { label: "Mark All Done"; iconName: "check"; variant: "secondary"; small: true; onClicked: backend.markAllTasksDone() },
                 AppButton {
                     label: root.composerOpen ? "Close" : "+ Add Task"
+                    iconName: root.composerOpen ? "close" : "review"
                     variant: "primary"
                     small: true
                     onClicked: root.composerOpen = !root.composerOpen
@@ -102,6 +103,7 @@ Rectangle {
 
                     AppButton {
                         label: "Create"
+                        iconName: "check"
                         variant: "primary"
                         enabled: taskNameField.text.trim().length > 0
                         onClicked: {
@@ -315,8 +317,20 @@ Rectangle {
                                 Layout.preferredWidth: root.actionsColWidth
                                 Layout.alignment: Qt.AlignVCenter
                                 spacing: 6
-                                AppButton { label: "Review"; variant: "primary"; small: true; onClicked: backend.markTaskDone(modelData.id) }
-                                AppButton { label: "Skip"; variant: "secondary"; small: true; onClicked: backend.skipTask(modelData.id) }
+                                AppButton {
+                                    label: "Review"
+                                    iconName: "review"
+                                    variant: "success"
+                                    small: true
+                                    onClicked: backend.markTaskDone(modelData.id)
+                                }
+                                AppButton {
+                                    label: "Skip"
+                                    iconName: "skip"
+                                    variant: "warning"
+                                    small: true
+                                    onClicked: backend.skipTask(modelData.id)
+                                }
                             }
                         }
                     }

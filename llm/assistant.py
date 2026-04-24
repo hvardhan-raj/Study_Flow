@@ -134,13 +134,35 @@ class LLMService:
         weak_subjects: list[dict[str, Any]],
     ) -> str:
         if overdue:
+            subjects = []
+            for item in overdue:
+                subject = str(item.get("subject", ""))
+                if subject and subject not in subjects:
+                    subjects.append(subject)
             first = overdue[0]
+            if len(subjects) >= 2:
+                mixed = ", ".join(subjects[: min(3, len(subjects))])
+                return (
+                    f"Start with overdue review: {first['name']}. Then rotate across {mixed} instead of staying in one subject. "
+                    "If time is tight, do one short recall block per subject before looping back."
+                )
             return (
                 f"Start with overdue review: {first['name']}. Spend 20-30 minutes on active recall, "
                 "then rate it honestly. After that, move to the highest-urgency due-today card."
             )
         if due_today:
             first = due_today[0]
+            subjects = []
+            for item in due_today:
+                subject = str(item.get("subject", ""))
+                if subject and subject not in subjects:
+                    subjects.append(subject)
+            if len(subjects) >= 2:
+                mixed = ", ".join(subjects[: min(3, len(subjects))])
+                return (
+                    f"Start with {first['name']}, then mix reviews across {mixed}. "
+                    "When time is limited, take one topic from each subject before doing a second pass."
+                )
             return (
                 f"Start with {first['name']} because it is due today. Use a short recall pass, "
                 "review mistakes, then finish with one confidence rating."

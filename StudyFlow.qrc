@@ -1,6 +1,8 @@
 <RCC>
     <qresource>
+        <file>AppIcon.qml</file>
         <file>AppButton.qml</file>
+        <file>AppToastHost.qml</file>
         <file>CalendarScreen.qml</file>
         <file>CurriculumMapScreen.qml</file>
         <file>DashboardScreen.qml</file>
@@ -8,6 +10,7 @@
         <file>Main.qml</file>
         <file>NotificationsScreen.qml</file>
         <file>PageHeader.qml</file>
+        <file>RoundedDialog.qml</file>
         <file>RevisionScheduleScreen.qml</file>
         <file>SettingsRow.qml</file>
         <file>SettingsScreen.qml</file>
@@ -19,5 +22,18 @@
         <file>TagPill.qml</file>
         <file>TaskInboxScreen.qml</file>
         <file>Theme.qml</file>
+        <file>assets/icons/alert.svg</file>
+        <file>assets/icons/bell.svg</file>
+        <file>assets/icons/calendar.svg</file>
+        <file>assets/icons/check.svg</file>
+        <file>assets/icons/close.svg</file>
+        <file>assets/icons/info.svg</file>
+        <file>assets/icons/play.svg</file>
+        <file>assets/icons/refresh.svg</file>
+        <file>assets/icons/report.svg</file>
+        <file>assets/icons/review.svg</file>
+        <file>assets/icons/skip.svg</file>
+        <file>assets/icons/spark.svg</file>
+        <file>assets/icons/stop.svg</file>
     </qresource>
 </RCC>

@@ -51,4 +51,9 @@ ApplicationWindow {
             SettingsScreen           {}   // 8
         }
     }
+
+    AppToastHost {
+        backendRef: typeof backend !== "undefined" ? backend : null
+        toastModel: backendRef ? backendRef.toasts : []
+    }
 }

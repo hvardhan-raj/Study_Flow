@@ -2,6 +2,7 @@
 
 import csv
 import logging
+from colorsys import hls_to_rgb
 from datetime import date, datetime, time, timedelta
 from io import StringIO
 from pathlib import Path
@@ -196,6 +197,7 @@ class StudyFlowBackend(QObject):
             self._normalize_notification(notification, index)
             for index, notification in enumerate(state.get("notifications", build_default_notifications()))
         ]
+        self._toasts: list[dict[str, Any]] = []
 
     def _save(self) -> None:
         save_state(
@@ -320,9 +322,13 @@ class StudyFlowBackend(QObject):
                 "topic": "",
                 "subject": "",
                 "elapsedMinutes": 0,
+                "elapsedSeconds": 0,
+                "startedAt": "",
+                "timerText": "00:00:00",
             }
         started_at = datetime.fromisoformat(active_session["started_at"])
-        elapsed_minutes = max(0, round((datetime.now() - started_at).total_seconds() / 60))
+        elapsed_seconds = max(0, round((datetime.now() - started_at).total_seconds()))
+        elapsed_minutes = max(0, elapsed_seconds // 60)
         topic = active_session.get("topic", "")
         subject = active_session.get("subject", "")
         detail = f"{elapsed_minutes} min on {topic}" if topic else f"{elapsed_minutes} min active"
@@ -335,6 +341,9 @@ class StudyFlowBackend(QObject):
             "topic": topic,
             "subject": subject,
             "elapsedMinutes": elapsed_minutes,
+            "elapsedSeconds": elapsed_seconds,
+            "startedAt": started_at.isoformat(),
+            "timerText": f"{elapsed_seconds // 3600:02d}:{(elapsed_seconds % 3600) // 60:02d}:{elapsed_seconds % 60:02d}",
         }
 
     def _notification_timestamp(self, index: int) -> datetime:
@@ -361,12 +370,78 @@ class StudyFlowBackend(QObject):
         item.setdefault("id", f"notif-{index + 1}")
         item.setdefault("title", "StudyFlow Alert")
         item.setdefault("body", "")
-        item.setdefault("icon", "!")
+        item["icon"] = self._normalize_icon_name(item.get("icon", "info"))
         item.setdefault("color", "#3B82F6")
         item["read"] = bool(item.get("read", False))
         item["timestamp"] = parsed_timestamp.isoformat()
         item["time"] = self._relative_time_label(parsed_timestamp)
         return item
+
+    def _normalize_icon_name(self, icon: str | None) -> str:
+        value = str(icon or "").strip().lower()
+        aliases = {
+            "!": "alert",
+            "t": "calendar",
+            "r": "report",
+            "ok": "check",
+            "ai": "spark",
+            "cal": "calendar",
+            "play_arrow": "play",
+            "stop": "stop",
+            "check_circle": "check",
+            "refresh": "refresh",
+        }
+        return aliases.get(value, value or "info")
+
+    def _build_toast(self, level: str, title: str, message: str) -> dict[str, Any]:
+        tone = {
+            "success": {"color": "#10B981", "icon": "check"},
+            "error": {"color": "#EF4444", "icon": "alert"},
+            "info": {"color": "#3B82F6", "icon": "info"},
+            "warning": {"color": "#F59E0B", "icon": "alert"},
+        }.get(level, {"color": "#3B82F6", "icon": "info"})
+        return {
+            "id": f"toast-{datetime.now().timestamp():.6f}",
+            "level": level,
+            "title": title,
+            "message": message,
+            "color": tone["color"],
+            "icon": tone["icon"],
+            "duration": 3600,
+        }
+
+    def _show_toast(self, level: str, title: str, message: str) -> None:
+        self._toasts.insert(0, self._build_toast(level, title, message))
+        self._toasts = self._toasts[:6]
+        self._emit()
+
+    def _hex_to_rgb(self, value: str) -> tuple[int, int, int]:
+        color = value.strip().lstrip("#")
+        if len(color) != 6:
+            return (59, 130, 246)
+        return tuple(int(color[index:index + 2], 16) for index in range(0, 6, 2))
+
+    def _subject_color_distance(self, left: str, right: str) -> float:
+        left_rgb = self._hex_to_rgb(left)
+        right_rgb = self._hex_to_rgb(right)
+        return sum((left_rgb[index] - right_rgb[index]) ** 2 for index in range(3)) ** 0.5
+
+    def _generate_subject_color(self) -> str:
+        with self._db() as db:
+            existing = [
+                str(color)
+                for color in db.scalars(select(Subject.color).where(func.coalesce(Subject.archived, 0) == 0))
+                if color
+            ]
+        if not existing:
+            existing = []
+        for step in range(1, 360):
+            hue = ((step * 137.508) % 360) / 360.0
+            red, green, blue = hls_to_rgb(hue, 0.80, 0.52)
+            candidate = "#{:02X}{:02X}{:02X}".format(round(red * 255), round(green * 255), round(blue * 255))
+            if all(self._subject_color_distance(candidate, current) >= 28 for current in existing):
+                return candidate
+        return "#A7C5FF"
 
     def _default_assistant_messages(self) -> list[dict[str, Any]]:
         return [self._normalize_assistant_message({"role": "assistant", "text": "I can help you plan today’s reviews.", "source": "system"})]
@@ -588,6 +663,10 @@ class StudyFlowBackend(QObject):
     def activeSession(self) -> dict[str, Any]:
         return self._active_session_payload()
 
+    @Property("QVariantList", notify=stateChanged)
+    def toasts(self) -> list[dict[str, Any]]:
+        return list(self._toasts)
+
     @Property("QVariantMap", notify=stateChanged)
     def dashboardFocus(self) -> dict[str, Any]:
         due_items = self._tasks_for_bucket("due_today")
@@ -701,8 +780,33 @@ class StudyFlowBackend(QObject):
         cells = []
         for week in cal.monthdatescalendar(self._calendar_view_date.year, self._calendar_view_date.month):
             for day in week:
-                tasks = [task for task in self._tasks if task["scheduled_at"].date() == day and not task["completed"]]
-                cells.append({"dayNum": str(day.day) if day.month == self._calendar_view_date.month else "", "isValid": day.month == self._calendar_view_date.month, "isToday": day == self._today, "isSelected": day == self._selected_date, "taskCount": len(tasks), "dateStr": day.isoformat()})
+                day_tasks = [task for task in self._tasks if task["scheduled_at"].date() == day]
+                open_tasks = [task for task in day_tasks if not task["completed"]]
+                indicator_colors: list[str] = []
+                for task in day_tasks:
+                    color = self._task_payload(task)["statusColor"]
+                    if color not in indicator_colors:
+                        indicator_colors.append(color)
+                status = "idle"
+                if any(task["completed"] for task in day_tasks):
+                    status = "completed"
+                if any(task["scheduled_at"].date() < self._today and not task["completed"] for task in day_tasks):
+                    status = "overdue"
+                elif any(task["scheduled_at"].date() == self._today and not task["completed"] for task in day_tasks):
+                    status = "due_today"
+                elif open_tasks:
+                    status = "upcoming"
+                cells.append({
+                    "dayNum": str(day.day) if day.month == self._calendar_view_date.month else "",
+                    "isValid": day.month == self._calendar_view_date.month,
+                    "isToday": day == self._today,
+                    "isSelected": day == self._selected_date,
+                    "taskCount": len(open_tasks),
+                    "dateStr": day.isoformat(),
+                    "status": status,
+                    "indicatorColors": indicator_colors[:4],
+                    "statusColor": indicator_colors[0] if indicator_colors else "#CBD5E1",
+                })
         return cells[:42]
 
     @Property("QVariantList", notify=stateChanged)
@@ -730,7 +834,7 @@ class StudyFlowBackend(QObject):
     def selectedDaySessions(self) -> list[dict[str, Any]]:
         tasks = [task for task in self._tasks if task["scheduled_at"].date() == self._selected_date]
         tasks.sort(key=lambda item: item["scheduled_at"])
-        return [{"id": task["id"], "topic": task["topic"], "name": task["topic"], "subject": task["subject"], "duration": task["duration_minutes"], "time": task["scheduled_at"].strftime("%H:%M"), "durationText": f"{task['duration_minutes']} min", "color": self._task_payload(task)["subjectColor"], "subjectColor": self._task_payload(task)["subjectColor"], "status": self._task_payload(task)["status"], "completed": task["completed"]} for task in tasks]
+        return [{"id": task["id"], "topic": task["topic"], "name": task["topic"], "subject": task["subject"], "duration": task["duration_minutes"], "time": task["scheduled_at"].strftime("%H:%M"), "durationText": f"{task['duration_minutes']} min", "color": self._task_payload(task)["subjectColor"], "subjectColor": self._task_payload(task)["subjectColor"], "status": self._task_payload(task)["status"], "statusColor": self._task_payload(task)["statusColor"], "completed": task["completed"]} for task in tasks]
 
     @Property(str, notify=stateChanged)
     def selectedDayTotalText(self) -> str:
@@ -844,7 +948,7 @@ class StudyFlowBackend(QObject):
     def upcomingReminders(self) -> list[dict[str, Any]]:
         tasks = [task for task in self._tasks if not task["completed"]]
         tasks.sort(key=lambda item: item["scheduled_at"])
-        return [{"id": task["id"], "title": task["topic"], "subject": task["subject"], "when": self._task_payload(task)["scheduledText"], "color": self._task_payload(task)["subjectColor"]} for task in tasks[:5]]
+        return [{"id": task["id"], "title": task["topic"], "subject": task["subject"], "when": self._task_payload(task)["scheduledText"], "color": self._task_payload(task)["subjectColor"], "status": self._task_payload(task)["status"], "statusColor": self._task_payload(task)["statusColor"]} for task in tasks[:5]]
 
     @Property("QVariantMap", notify=stateChanged)
     def reminderPreferences(self) -> dict[str, Any]:
@@ -868,7 +972,12 @@ class StudyFlowBackend(QObject):
     @Property("QVariantList", constant=True)
     def assistantPrompts(self) -> list[dict[str, str]]:
         due_topic = self._tasks_for_bucket("due_today")[0]["name"] if self._tasks_for_bucket("due_today") else "my next due topic"
-        return [{"label": "Study Today", "prompt": "What should I study today?"}, {"label": "Explain Topic", "prompt": f"Explain {due_topic} with a quick recall plan."}]
+        return [
+            {"label": "Study Today", "prompt": "What should I study today?"},
+            {"label": "Explain Topic", "prompt": f"Explain {due_topic} with a quick recall plan."},
+            {"label": "Weak Areas", "prompt": "Which subject needs attention?"},
+            {"label": "Exam Track", "prompt": "Am I on track for my exam?"},
+        ]
 
     @Property("QVariantMap", notify=stateChanged)
     def assistantContextSummary(self) -> dict[str, Any]:
@@ -921,14 +1030,17 @@ class StudyFlowBackend(QObject):
     def addSubject(self, name: str, color: str) -> None:
         clean_name = name.strip()
         if not clean_name:
+            self._show_toast("error", "Subject Not Added", "Enter a subject name before saving.")
             return
         try:
             with self._db() as db:
-                SubjectService(db).create_subject(name=clean_name, color_tag=color.strip() or "#3B82F6")
+                SubjectService(db).create_subject(name=clean_name, color_tag=color.strip() or self._generate_subject_color())
         except IntegrityError:
             logger.warning("Subject already exists", extra={"subject": clean_name})
+            self._show_toast("error", "Subject Not Added", f"{clean_name} already exists.")
             return
         self._request_intelligence_refresh()
+        self._show_toast("success", "Subject Added", f"{clean_name} is ready for topics.")
         self._emit()
 
     @Slot(str, str)
@@ -940,9 +1052,13 @@ class StudyFlowBackend(QObject):
 
     @Slot(str)
     def deleteSubject(self, subject_id: str) -> None:
+        subject_name = ""
         with self._db() as db:
+            subject = db.get(Subject, int(subject_id))
+            subject_name = subject.name if subject is not None else "Subject"
             SubjectService(db).delete_subject(subject_id)
         self._request_intelligence_refresh(train=True)
+        self._show_toast("success", "Subject Deleted", f"{subject_name} and its topics were removed.")
         self._emit()
 
     @Slot(str, str, str)
@@ -951,13 +1067,18 @@ class StudyFlowBackend(QObject):
         with self._db() as db:
             TopicService(db, scheduler=self._scheduler(db)).create_topic(subject_id=subject_id, name=name.strip(), difficulty=level)
         self._request_intelligence_refresh(train=True)
+        self._show_toast("success", "Topic Added", f"{name.strip()} was added to your curriculum.")
         self._emit()
 
     @Slot(str)
     def deleteTopic(self, topic_id: str) -> None:
+        topic_name = ""
         with self._db() as db:
+            topic = db.get(Topic, int(topic_id))
+            topic_name = topic.name if topic is not None else "Topic"
             TopicService(db, scheduler=self._scheduler(db)).delete_topic(topic_id)
         self._request_intelligence_refresh(train=True)
+        self._show_toast("success", "Topic Deleted", f"{topic_name} was removed.")
         self._emit()
 
     @Slot(str, int)
@@ -999,13 +1120,16 @@ class StudyFlowBackend(QObject):
         with self._db() as db:
             revision = db.get(Revision, int(task_id))
             if revision is None or revision.status != "open":
+                self._show_toast("error", "Task Update Failed", "That task is no longer available.")
                 return
+            topic_name = revision.topic.name
             self._scheduler(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=datetime.now())
             revision.topic.mastery_score = max(0, min(100, (revision.topic.mastery_score or 0) + RATING_TO_PROGRESS[3]))
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
         self._mark_revision_completed_for_intelligence()
+        self._show_toast("success", "Task Reviewed", f"{topic_name} was marked done.")
         self._emit()
 
     @Slot(str, int)
@@ -1013,8 +1137,10 @@ class StudyFlowBackend(QObject):
         with self._db() as db:
             revision = db.get(Revision, int(task_id))
             if revision is None or revision.status != "open":
+                self._show_toast("error", "Revision Update Failed", "That revision is no longer open.")
                 return
             safe_rating = max(1, min(int(rating), 4))
+            topic_name = revision.topic.name
             self._scheduler(db).record_revision(revision.id, rating=_rating_from_int(safe_rating), completed_at=datetime.now())
             revision.topic.mastery_score = max(0, min(100, (revision.topic.mastery_score or 0) + RATING_TO_PROGRESS[safe_rating]))
         self._study_minutes.append(25)
@@ -1022,17 +1148,23 @@ class StudyFlowBackend(QObject):
         self._save()
         self._mark_revision_completed_for_intelligence()
         self._emit()
+        self._show_toast("success", "Revision Logged", f"{topic_name} rated {RATING_LABELS[max(1, min(int(rating), 4))]}.")
         self._add_notification("Revision Logged", f"Review marked {RATING_LABELS[max(1, min(int(rating), 4))]}.", "check_circle", "#10B981")
 
     @Slot(str, str, str, str)
     def addTask(self, topic_name: str, subject_id: str, difficulty: str, schedule_key: str) -> None:
+        clean_topic_name = topic_name.strip()
+        if not clean_topic_name:
+            self._show_toast("error", "Task Not Added", "Enter a task name before creating it.")
+            return
         with self._db() as db:
             scheduler = self._scheduler(db)
             service = TopicService(db, scheduler=scheduler)
-            topic = service.create_topic(subject_id=subject_id, name=topic_name.strip(), difficulty=DifficultyLevel((difficulty or "Medium").lower()), auto_schedule=False)
+            topic = service.create_topic(subject_id=subject_id, name=clean_topic_name, difficulty=DifficultyLevel((difficulty or "Medium").lower()), auto_schedule=False)
             offset = {"overdue": -1, "today": 0, "tomorrow": 1, "this_week": 3}.get(schedule_key, 0)
             scheduler.create_first_revision(topic.id, scheduled_for=self._today + timedelta(days=offset))
         self._request_intelligence_refresh(train=True)
+        self._show_toast("success", "Task Added", f"{clean_topic_name} was scheduled.")
         self._emit()
 
     @Slot(str)
@@ -1040,17 +1172,51 @@ class StudyFlowBackend(QObject):
         with self._db() as db:
             revision = db.get(Revision, int(task_id))
             if revision is None or revision.status != "open":
+                self._show_toast("error", "Skip Failed", "That task is no longer available.")
                 return
+            topic_name = revision.topic.name
             self._scheduler(db).reschedule_after_miss(revision.id, reschedule_from=self._today + timedelta(days=1))
         self._request_intelligence_refresh()
+        self._show_toast("info", "Task Skipped", f"{topic_name} was moved to the next slot.")
         self._emit()
 
     @Slot()
     def markAllTasksDone(self) -> None:
-        for task in self.inboxTasks:
-            raw_task = next((item for item in self._tasks if item["id"] == task["id"]), None)
-            if raw_task is not None and self._task_bucket(raw_task) in {"overdue", "due_today"} and not raw_task["completed"]:
-                self.markTaskDone(task["id"])
+        visible_ids = {int(task["id"]) for task in self.inboxTasks}
+        if not visible_ids:
+            self._show_toast("info", "Nothing To Mark", "There are no visible tasks to complete.")
+            return
+
+        completed_count = 0
+        try:
+            with self._db() as db:
+                revisions = list(
+                    db.scalars(
+                        select(Revision)
+                        .options(joinedload(Revision.topic).joinedload(Topic.subject))
+                        .where(Revision.id.in_(visible_ids), Revision.status == "open")
+                        .order_by(Revision.due_at, Revision.id)
+                    )
+                )
+                for revision in revisions:
+                    self._scheduler(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=datetime.now())
+                    revision.topic.mastery_score = max(0, min(100, (revision.topic.mastery_score or 0) + RATING_TO_PROGRESS[3]))
+                    completed_count += 1
+        except Exception:
+            logger.exception("Failed to mark visible tasks done")
+            self._show_toast("error", "Bulk Update Failed", "StudyFlow could not mark the visible tasks as done.")
+            return
+
+        if completed_count == 0:
+            self._show_toast("info", "Nothing To Mark", "All visible tasks are already complete.")
+            return
+
+        self._study_minutes.extend([25] * completed_count)
+        self._study_minutes = self._study_minutes[-14:]
+        self._save()
+        self._mark_revision_completed_for_intelligence()
+        self._show_toast("success", "Tasks Completed", f"Marked {completed_count} visible task{'s' if completed_count != 1 else ''} as done.")
+        self._emit()
 
     @Slot()
     def startSession(self) -> None:
@@ -1087,8 +1253,9 @@ class StudyFlowBackend(QObject):
 
         session_info = self._active_session_payload()
         self._save()
-        self._emit()
         detail = f"Focusing on {session_info['topic']}." if session_info["topic"] else "Pick a due topic and rate it when you finish."
+        self._show_toast("info", "Session Started", detail)
+        self._emit()
         self._add_notification("Session Started", detail, "play_arrow", "#3B82F6")
 
     @Slot()
@@ -1116,6 +1283,7 @@ class StudyFlowBackend(QObject):
         self._save()
         self._emit()
         detail = f"Logged {duration_minutes} minutes on {session_topic}." if session_topic else f"Logged {duration_minutes} study minutes."
+        self._show_toast("success", "Session Ended", detail)
         self._add_notification("Session Ended", detail, "stop", "#10B981")
 
     @Slot(str, str, str, str, str, str)
@@ -1124,17 +1292,24 @@ class StudyFlowBackend(QObject):
         with self._db() as db:
             service = TopicService(db, scheduler=self._scheduler(db))
             if topic_id:
-                service.update_topic(topic_id, name=name.strip(), difficulty=level, notes=notes.strip())
+                service.update_topic(topic_id, name=name.strip(), difficulty=level, parent_topic_id=parent_topic_id, notes=notes.strip())
+                toast_title = "Topic Updated"
             else:
-                service.create_topic(subject_id=subject_id, name=name.strip(), difficulty=level, notes=notes.strip())
+                service.create_topic(subject_id=subject_id, name=name.strip(), difficulty=level, parent_topic_id=parent_topic_id, notes=notes.strip())
+                toast_title = "Topic Added"
         self._request_intelligence_refresh(train=True)
+        self._show_toast("success", toast_title, f"{name.strip()} was saved.")
         self._emit()
 
     @Slot(str)
     def markTopicComplete(self, topic_id: str) -> None:
+        topic_name = ""
         with self._db() as db:
+            topic = db.get(Topic, int(topic_id))
+            topic_name = topic.name if topic is not None else "Topic"
             TopicService(db, scheduler=self._scheduler(db)).update_topic(topic_id, is_completed=True, completion_date=self._today, progress=100)
         self._request_intelligence_refresh()
+        self._show_toast("success", "Topic Completed", f"{topic_name} reached 100% progress.")
         self._emit()
 
     @Slot(str, result="QVariantMap")
@@ -1212,6 +1387,7 @@ class StudyFlowBackend(QObject):
     def clearNotifications(self) -> None:
         self._notifications.clear()
         self._save()
+        self._show_toast("info", "Notifications Cleared", "Recent notifications were removed.")
         self._emit()
 
     @Slot()
@@ -1219,6 +1395,7 @@ class StudyFlowBackend(QObject):
         for notification in self._notifications:
             notification["read"] = True
         self._save()
+        self._show_toast("success", "Notifications Updated", "All notifications were marked as read.")
         self._emit()
 
     @Slot(str)
@@ -1233,6 +1410,7 @@ class StudyFlowBackend(QObject):
     @Slot()
     def refreshReminders(self) -> None:
         self._refresh_reminder_notifications()
+        self._show_toast("success", "Notifications Refreshed", "Reminder alerts were refreshed.")
         self._emit()
 
     @Slot(result=int)
@@ -1294,18 +1472,28 @@ class StudyFlowBackend(QObject):
     def clearAssistantChat(self) -> None:
         self._assistant_messages = self._default_assistant_messages()
         self._save()
+        self._show_toast("info", "Chat Cleared", "Assistant history was reset.")
         self._emit()
 
     @Slot()
     def saveSettings(self) -> None:
         self._save()
+        self._show_toast("success", "Settings Saved", "Your preferences were saved.")
 
     @Slot()
     def clearHistory(self) -> None:
         self._study_minutes.clear()
         self._notifications.clear()
         self._save()
+        self._show_toast("warning", "History Cleared", "Study history and notifications were cleared.")
         self._emit()
+
+    @Slot(str)
+    def dismissToast(self, toast_id: str) -> None:
+        before = len(self._toasts)
+        self._toasts = [toast for toast in self._toasts if toast.get("id") != toast_id]
+        if len(self._toasts) != before:
+            self._emit()
 
     @Slot(int)
     @Slot(str)

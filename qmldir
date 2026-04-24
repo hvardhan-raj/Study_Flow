@@ -1,10 +1,13 @@
+AppIcon                     1.0 AppIcon.qml
 AppButton                   1.0 AppButton.qml
+AppToastHost                1.0 AppToastHost.qml
 CalendarScreen              1.0 CalendarScreen.qml
 CurriculumMapScreen         1.0 CurriculumMapScreen.qml
 DashboardScreen             1.0 DashboardScreen.qml
 LearningIntelligenceScreen  1.0 LearningIntelligenceScreen.qml
 NotificationsScreen         1.0 NotificationsScreen.qml
 PageHeader                  1.0 PageHeader.qml
+RoundedDialog              1.0 RoundedDialog.qml
 RevisionScheduleScreen      1.0 RevisionScheduleScreen.qml
 SettingsScreen              1.0 SettingsScreen.qml
 Sidebar                     1.0 Sidebar.qml

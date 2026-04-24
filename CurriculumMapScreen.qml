@@ -13,7 +13,6 @@ Rectangle {
 
     function openSubjectDialog() {
         subjectNameField.text = ""
-        subjectColorField.text = "#3B82F6"
         addSubjectDialog.open()
     }
 
@@ -73,9 +72,9 @@ Rectangle {
             pageTitle: "Topic Manager"
             pageSubtitle: "HIERARCHY, BULK IMPORT, AND NLP SUGGESTIONS"
             rightContent: [
-                AppButton { label: "Import"; variant: "secondary"; small: true; onClicked: importDialog.open() },
-                AppButton { label: "+ Add Subject"; variant: "secondary"; small: true; onClicked: root.openSubjectDialog() },
-                AppButton { label: "+ Add Topic"; variant: "primary"; small: true; onClicked: root.openTopicDialog("", "", "") }
+                AppButton { label: "Import"; iconName: "refresh"; variant: "secondary"; small: true; onClicked: importDialog.open() },
+                AppButton { label: "Add Subject"; iconName: "check"; variant: "secondary"; small: true; onClicked: root.openSubjectDialog() },
+                AppButton { label: "Add Topic"; iconName: "review"; variant: "primary"; small: true; onClicked: root.openTopicDialog("", "", "") }
             ]
         }
 
@@ -249,9 +248,8 @@ Rectangle {
         }
     }
 
-    Dialog {
+    RoundedDialog {
         id: deleteSubjectDialog
-        modal: true
         width: 380
         title: "Delete Subject"
         standardButtons: Dialog.Ok | Dialog.Cancel
@@ -290,17 +288,16 @@ Rectangle {
         }
     }
 
-    Dialog {
+    RoundedDialog {
         id: addSubjectDialog
-        modal: true
-        width: 360
+        width: 380
         title: "Add Subject"
         standardButtons: Dialog.Ok | Dialog.Cancel
-        onAccepted: backend.addSubject(subjectNameField.text, subjectColorField.text)
+        onAccepted: backend.addSubject(subjectNameField.text, "")
 
         ColumnLayout {
             anchors.fill: parent
-            spacing: 10
+            spacing: 12
 
             TextField {
                 id: subjectNameField
@@ -308,17 +305,18 @@ Rectangle {
                 placeholderText: "Subject name"
             }
 
-            TextField {
-                id: subjectColorField
+            Text {
                 Layout.fillWidth: true
-                placeholderText: "#3B82F6"
+                text: "StudyFlow will assign a unique pastel color automatically."
+                wrapMode: Text.WordWrap
+                font.pixelSize: 10
+                color: "#64748B"
             }
         }
     }
 
-    Dialog {
+    RoundedDialog {
         id: topicDialog
-        modal: true
         width: 420
         title: editingTopicId ? "Edit Topic" : "Add Topic"
         standardButtons: Dialog.Ok | Dialog.Cancel
@@ -382,9 +380,8 @@ Rectangle {
         }
     }
 
-    Dialog {
+    RoundedDialog {
         id: importDialog
-        modal: true
         width: 480
         title: "Bulk Import Topics"
         standardButtons: Dialog.Ok | Dialog.Cancel

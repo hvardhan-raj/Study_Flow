@@ -75,7 +75,12 @@ class SubjectService:
         self.session.flush()
 
     def _require_subject(self, subject_id: int | str) -> Subject:
-        subject = self.session.get(Subject, int(subject_id))
+        subject: Subject | None = None
+        try:
+            subject = self.session.get(Subject, int(subject_id))
+        except (TypeError, ValueError):
+            stmt = select(Subject).where(Subject.name == str(subject_id))
+            subject = self.session.scalars(stmt).first()
         if subject is None:
             raise ValueError(f"Subject {subject_id} does not exist")
         return subject
@@ -103,7 +108,7 @@ class TopicService:
         topic = Topic(
             subject_id=subject.id,
             name=name,
-            description=notes,
+            description=self._encode_metadata(notes, parent_topic_id),
             difficulty=self._difficulty_value(difficulty),
             status="completed" if completion_date else "active",
             target_date=completion_date,
@@ -157,7 +162,9 @@ class TopicService:
         if completion_date is not None:
             topic.target_date = completion_date
         if notes is not None:
-            topic.description = notes
+            topic.description = self._encode_metadata(notes, parent_topic_id if parent_topic_id not in (None, "") else self._parent_topic_id(topic.description))
+        elif parent_topic_id not in (None, ""):
+            topic.description = self._encode_metadata(self._notes_only(topic.description), parent_topic_id)
         if is_completed is not None:
             topic.status = "completed" if is_completed else "active"
         if is_archived is not None:
@@ -193,7 +200,12 @@ class TopicService:
             return
 
     def _require_subject(self, subject_id: int | str) -> Subject:
-        subject = self.session.get(Subject, int(subject_id))
+        subject: Subject | None = None
+        try:
+            subject = self.session.get(Subject, int(subject_id))
+        except (TypeError, ValueError):
+            stmt = select(Subject).where(Subject.name == str(subject_id))
+            subject = self.session.scalars(stmt).first()
         if subject is None:
             raise ValueError(f"Subject {subject_id} does not exist")
         return subject
@@ -216,3 +228,25 @@ class TopicService:
             return round(max(0.0, min(float(supplied) * 100 if supplied <= 1 else float(supplied), 100.0)), 1)
         key = self._difficulty_value(difficulty)
         return {"easy": 25.0, "medium": 15.0, "hard": 5.0}.get(key, 15.0)
+
+    def _encode_metadata(self, notes: str | None, parent_topic_id: int | str | None) -> str | None:
+        clean_notes = (notes or "").strip()
+        if parent_topic_id in (None, ""):
+            return clean_notes or None
+        return f"[parent:{parent_topic_id}]\n{clean_notes}".strip()
+
+    def _parent_topic_id(self, description: str | None) -> str | None:
+        if not description:
+            return None
+        first_line = description.splitlines()[0].strip()
+        if first_line.startswith("[parent:") and first_line.endswith("]"):
+            return first_line[len("[parent:"):-1].strip() or None
+        return None
+
+    def _notes_only(self, description: str | None) -> str:
+        if not description:
+            return ""
+        lines = description.splitlines()
+        if lines and lines[0].strip().startswith("[parent:") and lines[0].strip().endswith("]"):
+            return "\n".join(lines[1:]).strip()
+        return description.strip()

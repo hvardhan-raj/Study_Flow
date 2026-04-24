@@ -33,6 +33,7 @@ Rectangle {
             rightContent: [
                 AppButton {
                     label: "Save"
+                    iconName: "check"
                     variant: "primary"
                     small: true
                     onClicked: {
@@ -44,123 +45,103 @@ Rectangle {
             ]
         }
 
-        ScrollView {
+        RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: availableWidth
-            clip: true
+            Layout.leftMargin: 24
+            Layout.rightMargin: 24
+            Layout.topMargin: 22
+            Layout.bottomMargin: 24
+            spacing: 16
 
-            ColumnLayout {
-                width: parent.width
-                spacing: 18
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                radius: 18
+                color: "#FFFFFF"
+                border.color: "#E2E8F0"
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
-                    Layout.topMargin: 22
-                    spacing: 16
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 18
+                    spacing: 18
 
-                    Rectangle {
+                    Text {
+                        text: "Study Planning"
+                        font.pixelSize: 10
+                        font.letterSpacing: 1.4
+                        font.bold: true
+                        color: "#94A3B8"
+                    }
+
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        radius: 16
-                        color: "#FFFFFF"
-                        border.color: "#E2E8F0"
-                        implicitHeight: planningColumn.implicitHeight + 36
+                        spacing: 6
 
-                        ColumnLayout {
-                            id: planningColumn
-                            anchors.fill: parent
-                            anchors.margins: 18
-                            spacing: 14
+                        Text { text: "Daily Study Limit (minutes)"; font.pixelSize: 12; font.bold: true; color: "#0F172A" }
 
-                            Text {
-                                text: "Study Planning"
-                                font.pixelSize: 10
-                                font.letterSpacing: 1.4
-                                font.bold: true
-                                color: "#94A3B8"
-                            }
+                        TextField {
+                            id: dailyLimitField
+                            Layout.fillWidth: true
+                            text: String(root.scheduleSettings.daily_time_minutes || 120)
+                            placeholderText: "120"
+                            selectByMouse: true
+                            validator: IntValidator { bottom: 15; top: 600 }
+                            onEditingFinished: backend.updateScheduleSetting("daily_time_minutes", text)
+                        }
 
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 6
-
-                                Text {
-                                    text: "Daily Study Limit (minutes)"
-                                    font.pixelSize: 12
-                                    font.bold: true
-                                    color: "#0F172A"
-                                }
-
-                                TextField {
-                                    id: dailyLimitField
-                                    Layout.fillWidth: true
-                                    text: String(root.scheduleSettings.daily_time_minutes || 120)
-                                    placeholderText: "120"
-                                    selectByMouse: true
-                                    validator: IntValidator { bottom: 15; top: 600 }
-                                    onEditingFinished: backend.updateScheduleSetting("daily_time_minutes", text)
-                                }
-
-                                Text {
-                                    text: "Controls how many study minutes can be planned each day before overflow is pushed forward."
-                                    wrapMode: Text.WordWrap
-                                    font.pixelSize: 10
-                                    color: "#64748B"
-                                    Layout.fillWidth: true
-                                }
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 6
-
-                                Text {
-                                    text: "Preferred Study Start Time"
-                                    font.pixelSize: 12
-                                    font.bold: true
-                                    color: "#0F172A"
-                                }
-
-                                ComboBox {
-                                    id: startTimeBox
-                                    Layout.fillWidth: true
-                                    model: root.timeOptions
-                                    currentIndex: root.preferredTimeIndex()
-                                    onActivated: backend.updateScheduleSetting("preferred_time", currentText)
-                                }
-
-                                Text {
-                                    text: "Daily task slots are allocated sequentially from this time with a 5-minute buffer between revisions."
-                                    wrapMode: Text.WordWrap
-                                    font.pixelSize: 10
-                                    color: "#64748B"
-                                    Layout.fillWidth: true
-                                }
-                            }
+                        Text {
+                            text: "Controls how many study minutes can be planned each day before overflow is pushed forward."
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: 10
+                            color: "#64748B"
+                            Layout.fillWidth: true
                         }
                     }
 
-                    SettingsSection {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        sectionTitle: "Notifications"
+                        spacing: 6
 
-                        Repeater {
-                            model: backend.settingsColumns.length > 1 ? backend.settingsColumns[1].rows : []
-                            delegate: SettingsRow {
-                                label: modelData.label
-                                value: modelData.value || ""
-                                valueColor: modelData.valueColor || "#374151"
-                                isToggle: modelData.kind === "toggle"
-                                toggleOn: modelData.toggleOn || false
-                                isDanger: modelData.kind === "danger"
-                                dangerLabel: modelData.dangerLabel || ""
-                                settingKey: modelData.key || ""
-                                onToggled: backend.toggleSetting(settingKey)
-                                onDangerClicked: backend.clearHistory()
-                            }
+                        Text { text: "Preferred Study Start Time"; font.pixelSize: 12; font.bold: true; color: "#0F172A" }
+
+                        ComboBox {
+                            id: startTimeBox
+                            Layout.fillWidth: true
+                            model: root.timeOptions
+                            currentIndex: root.preferredTimeIndex()
+                            onActivated: backend.updateScheduleSetting("preferred_time", currentText)
                         }
+
+                        Text {
+                            text: "Daily task slots are allocated sequentially from this time with a 5-minute buffer between revisions."
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: 10
+                            color: "#64748B"
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+            }
+
+            SettingsSection {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                sectionTitle: "Notifications"
+
+                Repeater {
+                    model: backend.settingsColumns.length > 1 ? backend.settingsColumns[1].rows : []
+                    delegate: SettingsRow {
+                        label: modelData.label
+                        value: modelData.value || ""
+                        valueColor: modelData.valueColor || "#374151"
+                        isToggle: modelData.kind === "toggle"
+                        toggleOn: modelData.toggleOn || false
+                        isDanger: modelData.kind === "danger"
+                        dangerLabel: modelData.dangerLabel || ""
+                        settingKey: modelData.key || ""
+                        onToggled: backend.toggleSetting(settingKey)
+                        onDangerClicked: backend.clearHistory()
                     }
                 }
             }
