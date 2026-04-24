@@ -78,6 +78,7 @@ Rectangle {
                         Repeater {
                             model: backend.calendarCells
                             delegate: Rectangle {
+                                property bool cellSelected: modelData.isSelected
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 78
                                 radius: 14
@@ -109,7 +110,7 @@ Rectangle {
                                                 height: 7
                                                 radius: 3.5
                                                 color: modelData
-                                                border.color: parent.parent.parent.parent.modelData.isSelected ? "#FFFFFF" : "transparent"
+                                                border.color: cellSelected ? "#FFFFFF" : "transparent"
                                                 border.width: 1
                                             }
                                         }
