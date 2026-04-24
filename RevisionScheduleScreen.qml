@@ -36,14 +36,7 @@ Rectangle {
             pageTitle: "Revision Schedule"
             pageSubtitle: "CALENDAR, DUE SESSIONS, AND WEEKLY LOAD"
             rightContent: [
-                AppButton { label: "Today"; variant: "secondary"; small: true; onClicked: if (root.backendRef) root.backendRef.goToToday() },
-                AppButton { label: "Tomorrow"; variant: "secondary"; small: true; onClicked: if (root.backendRef) root.backendRef.selectTomorrow() },
-                AppButton {
-                    label: "+ Add Session"
-                    variant: "primary"
-                    small: true
-                    onClicked: if (typeof navigation !== "undefined" && navigation !== null) navigation.navigateToRoute("tasks")
-                }
+                AppButton { label: "Today"; variant: "secondary"; small: true; onClicked: if (root.backendRef) root.backendRef.goToToday() }
             ]
         }
 

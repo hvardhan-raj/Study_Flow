@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload
 from config.settings import settings
 from db.session import create_session_factory, create_sqlite_engine, init_database, session_scope
 from llm import AssistantContext, LLMService
-from models import ConfidenceRating, DifficultyLevel, Revision, StudySession, Subject, Topic
+from models import AppSetting, ConfidenceRating, DifficultyLevel, Revision, StudySession, Subject, Topic
 from nlp import NLPService, load_training_examples, train_model
 from services import (
     DesktopNotifier,
@@ -39,7 +39,11 @@ logger = logging.getLogger(__name__)
 CONFIDENCE_MAX = 5
 RATING_LABELS = {1: "Again", 2: "Hard", 3: "Good", 4: "Easy"}
 RATING_TO_PROGRESS = {1: -6, 2: 2, 3: 6, 4: 10}
-DIFFICULTY_TO_DURATION = {"Easy": 15, "Medium": 25, "Hard": 35}
+DIFFICULTY_TO_DURATION = {"Easy": 15, "Medium": 30, "Hard": 45}
+DEFAULT_SCHEDULE_SETTINGS = {
+    "daily_time_minutes": "120",
+    "preferred_time": "18:00",
+}
 ALERT_SETTING_META = {
     "due_today": ("Due Today", "Notify when revisions are scheduled for today.", "#3B82F6"),
     "overdue": ("Overdue Reviews", "Highlight slipped reviews before new study.", "#EF4444"),
@@ -112,6 +116,35 @@ class StudyFlowBackend(QObject):
 
     def _db(self):
         return session_scope(self._session_factory)
+
+    def _scheduler(self, db: Session) -> SchedulerService:
+        return SchedulerService(db, today_provider=lambda: self._today)
+
+    def _get_schedule_setting(self, key: str) -> str:
+        default = DEFAULT_SCHEDULE_SETTINGS[key]
+        with self._db() as db:
+            setting = db.get(AppSetting, key)
+            if setting is None:
+                setting = AppSetting(key=key, value=default)
+                db.add(setting)
+                db.flush()
+                return default
+            if setting.value in (None, ""):
+                setting.value = default
+                db.flush()
+                return default
+            return str(setting.value)
+
+    def _set_schedule_setting(self, key: str, value: str) -> None:
+        with self._db() as db:
+            setting = db.get(AppSetting, key)
+            if setting is None:
+                setting = AppSetting(key=key, value=value)
+                db.add(setting)
+            else:
+                setting.value = value
+            db.flush()
+            self._scheduler(db).rebalance_schedule()
 
     def _resolve_database_path(self, store_path: Path) -> Path:
         if store_path.name.endswith("_state.json"):
@@ -705,6 +738,13 @@ class StudyFlowBackend(QObject):
         return self._study_trend_values()
 
     @Property("QVariantList", notify=stateChanged)
+    def studyTrendLabels(self) -> list[str]:
+        return [
+            (self._today - timedelta(days=offset)).strftime("%a")
+            for offset in range(13, -1, -1)
+        ]
+
+    @Property("QVariantList", notify=stateChanged)
     def activityHeatmap(self) -> list[int]:
         trend = self._study_trend_values(14)
         cells = []
@@ -794,11 +834,47 @@ class StudyFlowBackend(QObject):
         context = self._assistant_context()
         return {"dueToday": len(context.due_today), "overdue": len(context.overdue), "weakSubjects": len([item for item in context.weak_subjects if item.get("risk") != "Low"]), "nextTopic": context.overdue[0]["name"] if context.overdue else (context.due_today[0]["name"] if context.due_today else "No due topics")}
 
+    @Property("QVariantMap", notify=stateChanged)
+    def scheduleSettings(self) -> dict[str, Any]:
+        return {
+            "daily_time_minutes": int(self._get_schedule_setting("daily_time_minutes")),
+            "preferred_time": self._get_schedule_setting("preferred_time"),
+        }
+
     @Property("QVariantList", notify=stateChanged)
     def settingsColumns(self) -> list[dict[str, Any]]:
         return [
+            {
+                "title": "Study Planning",
+                "rows": [
+                    {
+                        "label": "Daily Study Limit",
+                        "key": "daily_time_minutes",
+                        "kind": "value",
+                        "value": f"{self.scheduleSettings['daily_time_minutes']} min",
+                    },
+                    {
+                        "label": "Preferred Study Start Time",
+                        "key": "preferred_time",
+                        "kind": "value",
+                        "value": self.scheduleSettings["preferred_time"],
+                    },
+                ],
+            },
             {"title": "Notifications", "rows": [{"label": "Push Alerts", "key": "notifications", "kind": "toggle", "toggleOn": bool(self._settings.get("notifications", {}).get("enabled", True))}, {"label": "Reminders", "key": "reminders", "kind": "toggle", "toggleOn": bool(self._settings.get("reminders", True))}, {"label": "Auto Schedule", "key": "auto_schedule", "kind": "toggle", "toggleOn": bool(self._settings.get("auto_schedule", True))}]},
         ]
+
+    @Slot(str, str)
+    def updateScheduleSetting(self, key: str, value: str) -> None:
+        if key == "daily_time_minutes":
+            normalized = str(max(15, int(value)))
+        elif key == "preferred_time":
+            time.fromisoformat(value)
+            normalized = value
+        else:
+            return
+        self._set_schedule_setting(key, normalized)
+        self._emit()
 
     @Slot(str, str)
     def addSubject(self, name: str, color: str) -> None:
@@ -829,19 +905,19 @@ class StudyFlowBackend(QObject):
     def addTopic(self, subject_id: str, name: str, difficulty: str) -> None:
         level = DifficultyLevel((difficulty or "Medium").lower())
         with self._db() as db:
-            TopicService(db, scheduler=SchedulerService(db)).create_topic(subject_id=subject_id, name=name.strip(), difficulty=level)
+            TopicService(db, scheduler=self._scheduler(db)).create_topic(subject_id=subject_id, name=name.strip(), difficulty=level)
         self._emit()
 
     @Slot(str)
     def deleteTopic(self, topic_id: str) -> None:
         with self._db() as db:
-            TopicService(db, scheduler=SchedulerService(db)).delete_topic(topic_id)
+            TopicService(db, scheduler=self._scheduler(db)).delete_topic(topic_id)
         self._emit()
 
     @Slot(str, int)
     def updateTopicProgress(self, topic_id: str, progress: int) -> None:
         with self._db() as db:
-            TopicService(db, scheduler=SchedulerService(db)).update_topic(topic_id, progress=progress)
+            TopicService(db, scheduler=self._scheduler(db)).update_topic(topic_id, progress=progress)
         self._emit()
 
     @Slot(result="QVariantList")
@@ -860,7 +936,7 @@ class StudyFlowBackend(QObject):
     def reviewTopic(self, topic_id: str, rating: int) -> None:
         safe_rating = max(1, min(int(rating), 4))
         with self._db() as db:
-            scheduler = SchedulerService(db)
+            scheduler = self._scheduler(db)
             scheduler.review(topic_id, _rating_from_int(safe_rating), completed_at=datetime.now())
             topic = db.get(Topic, int(topic_id))
             if topic is not None:
@@ -876,7 +952,7 @@ class StudyFlowBackend(QObject):
             revision = db.get(Revision, int(task_id))
             if revision is None or revision.status != "open":
                 return
-            SchedulerService(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=datetime.now())
+            self._scheduler(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=datetime.now())
             revision.topic.mastery_score = max(0, min(100, (revision.topic.mastery_score or 0) + RATING_TO_PROGRESS[3]))
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
@@ -890,7 +966,7 @@ class StudyFlowBackend(QObject):
             if revision is None or revision.status != "open":
                 return
             safe_rating = max(1, min(int(rating), 4))
-            SchedulerService(db).record_revision(revision.id, rating=_rating_from_int(safe_rating), completed_at=datetime.now())
+            self._scheduler(db).record_revision(revision.id, rating=_rating_from_int(safe_rating), completed_at=datetime.now())
             revision.topic.mastery_score = max(0, min(100, (revision.topic.mastery_score or 0) + RATING_TO_PROGRESS[safe_rating]))
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
@@ -901,10 +977,11 @@ class StudyFlowBackend(QObject):
     @Slot(str, str, str, str)
     def addTask(self, topic_name: str, subject_id: str, difficulty: str, schedule_key: str) -> None:
         with self._db() as db:
-            service = TopicService(db, scheduler=SchedulerService(db))
+            scheduler = self._scheduler(db)
+            service = TopicService(db, scheduler=scheduler)
             topic = service.create_topic(subject_id=subject_id, name=topic_name.strip(), difficulty=DifficultyLevel((difficulty or "Medium").lower()), auto_schedule=False)
             offset = {"overdue": -1, "today": 0, "tomorrow": 1, "this_week": 3}.get(schedule_key, 0)
-            SchedulerService(db).schedule_new_topic(topic.id, scheduled_for=self._today + timedelta(days=offset))
+            scheduler.create_first_revision(topic.id, scheduled_for=self._today + timedelta(days=offset))
         self._emit()
 
     @Slot(str)
@@ -913,7 +990,7 @@ class StudyFlowBackend(QObject):
             revision = db.get(Revision, int(task_id))
             if revision is None or revision.status != "open":
                 return
-            SchedulerService(db).reschedule_after_miss(revision.id, reschedule_from=self._today + timedelta(days=1))
+            self._scheduler(db).reschedule_after_miss(revision.id, reschedule_from=self._today + timedelta(days=1))
         self._emit()
 
     @Slot()
@@ -993,7 +1070,7 @@ class StudyFlowBackend(QObject):
     def upsertTopic(self, topic_id: str, name: str, subject_id: str, difficulty: str, parent_topic_id: str, notes: str) -> None:
         level = DifficultyLevel((difficulty or "Medium").lower())
         with self._db() as db:
-            service = TopicService(db, scheduler=SchedulerService(db))
+            service = TopicService(db, scheduler=self._scheduler(db))
             if topic_id:
                 service.update_topic(topic_id, name=name.strip(), difficulty=level, notes=notes.strip())
             else:
@@ -1003,7 +1080,7 @@ class StudyFlowBackend(QObject):
     @Slot(str)
     def markTopicComplete(self, topic_id: str) -> None:
         with self._db() as db:
-            TopicService(db, scheduler=SchedulerService(db)).update_topic(topic_id, is_completed=True, completion_date=self._today, progress=100)
+            TopicService(db, scheduler=self._scheduler(db)).update_topic(topic_id, is_completed=True, completion_date=self._today, progress=100)
         self._emit()
 
     @Slot(str, result="QVariantMap")
@@ -1021,7 +1098,7 @@ class StudyFlowBackend(QObject):
         else:
             entries = [line.strip() for line in raw_text.splitlines() if line.strip()]
         with self._db() as db:
-            service = TopicService(db, scheduler=SchedulerService(db))
+            service = TopicService(db, scheduler=self._scheduler(db))
             for entry in entries:
                 suggestion = self.suggestTopicDifficulty(entry)
                 difficulty = DifficultyLevel((suggestion["difficulty"] or "Medium").lower())

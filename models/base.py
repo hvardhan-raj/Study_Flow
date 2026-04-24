@@ -4,12 +4,14 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    DDL,
     Float,
     ForeignKey,
     Index,
     Integer,
     String,
     Text,
+    event,
     func,
     text,
 )
@@ -107,9 +109,23 @@ class Revision(TimestampMixin, Base):
             "rating IS NULL OR rating IN ('again', 'hard', 'good', 'easy')",
             name="ck_revisions_rating",
         ),
+        CheckConstraint("interval_days IS NULL OR interval_days >= 0", name="ck_revisions_interval_days_non_negative"),
+        CheckConstraint(
+            "previous_interval_days IS NULL OR previous_interval_days >= 0",
+            name="ck_revisions_previous_interval_days_non_negative",
+        ),
+        CheckConstraint("stability IS NULL OR stability >= 0", name="ck_revisions_stability_non_negative"),
+        CheckConstraint("overdue_days >= 0", name="ck_revisions_overdue_days_non_negative"),
         Index("ix_revisions_topic_id", "topic_id"),
         Index("ix_revisions_due_at", "due_at"),
         Index("ix_revisions_status", "status"),
+        Index("idx_revisions_due_status", "due_at", "status"),
+        Index("idx_revisions_topic_status", "topic_id", "status"),
+        Index(
+            "idx_revisions_open_due",
+            "due_at",
+            sqlite_where=text("status = 'open'"),
+        ),
         Index(
             "ux_revisions_one_open_per_topic",
             "topic_id",
@@ -259,3 +275,42 @@ MODEL_REGISTRY: tuple[type[Base], ...] = (
     Notification,
     AppSetting,
 )
+
+
+event.listen(
+    AppSetting.__table__,
+    "after_create",
+    DDL(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value)
+        VALUES
+            ('daily_time_minutes', '120'),
+            ('preferred_time', '18:00')
+        """
+    ),
+)
+
+for trigger_name, table_name in (
+    ("trg_topics_updated_at", "topics"),
+    ("trg_revisions_updated_at", "revisions"),
+    ("trg_sessions_updated_at", "study_sessions"),
+    ("trg_tasks_updated_at", "tasks"),
+    ("trg_settings_updated_at", "app_settings"),
+):
+    event.listen(
+        Base.metadata,
+        "after_create",
+        DDL(
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {trigger_name}
+            AFTER UPDATE ON {table_name}
+            FOR EACH ROW
+            WHEN NEW.updated_at = OLD.updated_at
+            BEGIN
+              UPDATE {table_name}
+              SET updated_at = CURRENT_TIMESTAMP
+              WHERE rowid = NEW.rowid;
+            END;
+            """
+        ),
+    )

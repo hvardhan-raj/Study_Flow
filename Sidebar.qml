@@ -74,7 +74,7 @@ Rectangle {
 
         // ── Nav items ────────────────────────────────────────────────
         Repeater {
-            model: root.pages.length > 0 ? root.pages.slice(0, 8) : []
+            model: root.pages
             delegate: SidebarItem {
                 label:    modelData.label
                 icon:     modelData.icon

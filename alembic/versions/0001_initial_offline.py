@@ -74,16 +74,32 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.CheckConstraint("status IN ('open', 'completed', 'missed', 'cancelled')", name="ck_revisions_status"),
         sa.CheckConstraint("rating IS NULL OR rating IN ('again', 'hard', 'good', 'easy')", name="ck_revisions_rating"),
+        sa.CheckConstraint("interval_days IS NULL OR interval_days >= 0", name="ck_revisions_interval_days_non_negative"),
+        sa.CheckConstraint(
+            "previous_interval_days IS NULL OR previous_interval_days >= 0",
+            name="ck_revisions_previous_interval_days_non_negative",
+        ),
+        sa.CheckConstraint("stability IS NULL OR stability >= 0", name="ck_revisions_stability_non_negative"),
+        sa.CheckConstraint("overdue_days >= 0", name="ck_revisions_overdue_days_non_negative"),
         sa.ForeignKeyConstraint(["topic_id"], ["topics.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["scheduled_from_revision_id"], ["revisions.id"], ondelete="SET NULL"),
     )
     op.create_index("ix_revisions_topic_id", "revisions", ["topic_id"])
     op.create_index("ix_revisions_due_at", "revisions", ["due_at"])
     op.create_index("ix_revisions_status", "revisions", ["status"])
+    op.create_index("idx_revisions_due_status", "revisions", ["due_at", "status"])
+    op.create_index("idx_revisions_topic_status", "revisions", ["topic_id", "status"])
     op.execute(
         """
         CREATE UNIQUE INDEX ux_revisions_one_open_per_topic
         ON revisions(topic_id)
+        WHERE status = 'open'
+        """
+    )
+    op.execute(
+        """
+        CREATE INDEX idx_revisions_open_due
+        ON revisions(due_at)
         WHERE status = 'open'
         """
     )
@@ -173,9 +189,76 @@ def upgrade() -> None:
         sa.Column("value", sa.Text(), nullable=True),
         sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
     )
+    op.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value) VALUES
+        ('daily_time_minutes', '120'),
+        ('preferred_time', '18:00')
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_topics_updated_at
+        AFTER UPDATE ON topics
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+          UPDATE topics SET updated_at = CURRENT_TIMESTAMP WHERE rowid = NEW.rowid;
+        END
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_revisions_updated_at
+        AFTER UPDATE ON revisions
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+          UPDATE revisions SET updated_at = CURRENT_TIMESTAMP WHERE rowid = NEW.rowid;
+        END
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_sessions_updated_at
+        AFTER UPDATE ON study_sessions
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+          UPDATE study_sessions SET updated_at = CURRENT_TIMESTAMP WHERE rowid = NEW.rowid;
+        END
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_tasks_updated_at
+        AFTER UPDATE ON tasks
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+          UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE rowid = NEW.rowid;
+        END
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_settings_updated_at
+        AFTER UPDATE ON app_settings
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+          UPDATE app_settings SET updated_at = CURRENT_TIMESTAMP WHERE rowid = NEW.rowid;
+        END
+        """
+    )
 
 
 def downgrade() -> None:
+    op.execute("DROP TRIGGER IF EXISTS trg_settings_updated_at")
+    op.execute("DROP TRIGGER IF EXISTS trg_tasks_updated_at")
+    op.execute("DROP TRIGGER IF EXISTS trg_sessions_updated_at")
+    op.execute("DROP TRIGGER IF EXISTS trg_revisions_updated_at")
+    op.execute("DROP TRIGGER IF EXISTS trg_topics_updated_at")
     op.drop_table("app_settings")
     op.drop_index("ix_notifications_scheduled_for", table_name="notifications")
     op.drop_index("ix_notifications_related_topic_id", table_name="notifications")
@@ -193,6 +276,9 @@ def downgrade() -> None:
     op.drop_index("ix_study_sessions_topic_id", table_name="study_sessions")
     op.drop_index("ix_study_sessions_subject_id", table_name="study_sessions")
     op.drop_table("study_sessions")
+    op.drop_index("idx_revisions_open_due", table_name="revisions")
+    op.drop_index("idx_revisions_topic_status", table_name="revisions")
+    op.drop_index("idx_revisions_due_status", table_name="revisions")
     op.drop_index("ux_revisions_one_open_per_topic", table_name="revisions")
     op.drop_index("ix_revisions_status", table_name="revisions")
     op.drop_index("ix_revisions_due_at", table_name="revisions")

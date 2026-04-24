@@ -8,11 +8,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from models import Revision, Subject, Topic
+from services import SchedulerService
 from studyflow_backend.models import SubjectMeta
 from studyflow_backend.presenters import difficulty_color, task_payload
 
 CONFIDENCE_MAX = 5
-DIFFICULTY_TO_DURATION = {"Easy": 15, "Medium": 25, "Hard": 35}
+DIFFICULTY_TO_DURATION = {"Easy": 15, "Medium": 30, "Hard": 45}
 
 
 class StudyFlowReadModel:
@@ -107,6 +108,7 @@ class StudyFlowReadModel:
 
     def all_revisions(self) -> list[Revision]:
         with self._db_factory() as db:
+            SchedulerService(db).rebalance_schedule()
             stmt = (
                 select(Revision)
                 .options(joinedload(Revision.topic).joinedload(Topic.subject))

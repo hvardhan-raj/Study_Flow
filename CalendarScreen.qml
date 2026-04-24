@@ -80,8 +80,7 @@ Rectangle {
             pageTitle: "Calendar"
             pageSubtitle: "MONTHLY SESSION VIEW"
             rightContent: [
-                AppButton { label: "Today"; variant: "secondary"; small: true; onClicked: backend.goToToday() },
-                AppButton { label: "+ Add Session"; variant: "primary"; small: true }
+                AppButton { label: "Today"; variant: "secondary"; small: true; onClicked: backend.goToToday() }
             ]
         }
 
@@ -232,38 +231,46 @@ Rectangle {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#F1F5F9" }
 
-                    Repeater {
-                        model: backend.selectedDaySessions
-                        delegate: RowLayout {
-                            Layout.fillWidth: true
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+
+                        ListView {
+                            anchors.fill: parent
+                            clip: true
                             spacing: 10
+                            model: backend.selectedDaySessions
 
-                            Text { text: root.sessionTime(modelData); font.pixelSize: 11; color: "#94A3B8"; Layout.preferredWidth: 38 }
+                            delegate: RowLayout {
+                                width: ListView.view ? ListView.view.width : parent.width
+                                spacing: 10
 
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: 52; radius: 8
-                                color: Qt.rgba(parseInt(root.sessionColor(modelData).slice(1,3),16)/255, parseInt(root.sessionColor(modelData).slice(3,5),16)/255, parseInt(root.sessionColor(modelData).slice(5,7),16)/255, 0.08)
+                                Text { text: root.sessionTime(modelData); font.pixelSize: 11; color: "#94A3B8"; Layout.preferredWidth: 38 }
 
-                                Rectangle { width: 3; height: 32; radius: 2; color: root.sessionColor(modelData); anchors { left: parent.left; verticalCenter: parent.verticalCenter } }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 52
+                                    radius: 8
+                                    color: Qt.rgba(parseInt(root.sessionColor(modelData).slice(1,3),16)/255, parseInt(root.sessionColor(modelData).slice(3,5),16)/255, parseInt(root.sessionColor(modelData).slice(5,7),16)/255, 0.08)
 
-                                ColumnLayout {
-                                    anchors { fill: parent; leftMargin: 12; rightMargin: 10 }
-                                    spacing: 2
-                                    Text { text: root.sessionTopic(modelData); font.pixelSize: 12; font.bold: true; color: "#1A2332"; elide: Text.ElideRight; Layout.fillWidth: true }
-                                    RowLayout {
-                                        spacing: 6
-                                        Text { text: root.sessionSubject(modelData); font.pixelSize: 10; color: root.sessionColor(modelData) }
-                                        Text { text: "."; font.pixelSize: 10; color: "#CBD5E1" }
-                                        Text { text: root.sessionDuration(modelData); font.pixelSize: 10; color: "#94A3B8" }
+                                    Rectangle { width: 3; height: 32; radius: 2; color: root.sessionColor(modelData); anchors { left: parent.left; verticalCenter: parent.verticalCenter } }
+
+                                    ColumnLayout {
+                                        anchors { fill: parent; leftMargin: 12; rightMargin: 10 }
+                                        spacing: 2
+                                        Text { text: root.sessionTopic(modelData); font.pixelSize: 12; font.bold: true; color: "#1A2332"; elide: Text.ElideRight; Layout.fillWidth: true }
+                                        RowLayout {
+                                            spacing: 6
+                                            Text { text: root.sessionSubject(modelData); font.pixelSize: 10; color: root.sessionColor(modelData) }
+                                            Text { text: "."; font.pixelSize: 10; color: "#CBD5E1" }
+                                            Text { text: root.sessionDuration(modelData); font.pixelSize: 10; color: "#94A3B8" }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-
-                    Item { Layout.fillHeight: true }
-                    AppButton { label: "+ Add Session"; variant: "primary"; Layout.fillWidth: true }
 
                     Rectangle {
                         Layout.fillWidth: true

@@ -4,7 +4,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event, inspect
+from sqlalchemy import Engine, create_engine, event, inspect, text
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -93,6 +93,7 @@ def init_database(*, engine_override: Engine | None = None, database_path: str |
         if resolved_path.exists():
             resolved_path.unlink()
     Base.metadata.create_all(active_engine)
+    _ensure_sqlite_artifacts(active_engine)
 
 
 def _database_needs_reset(active_engine: Engine, database_path: Path) -> bool:
@@ -114,3 +115,66 @@ def _database_needs_reset(active_engine: Engine, database_path: Path) -> bool:
         if not columns.issubset(existing):
             return True
     return False
+
+
+def _ensure_sqlite_artifacts(active_engine: Engine) -> None:
+    statements = (
+        """
+        INSERT OR IGNORE INTO app_settings (key, value)
+        VALUES
+            ('daily_time_minutes', '120'),
+            ('preferred_time', '18:00')
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_revisions_due_status ON revisions(due_at, status)",
+        "CREATE INDEX IF NOT EXISTS idx_revisions_topic_status ON revisions(topic_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_revisions_open_due ON revisions(due_at) WHERE status = 'open'",
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_topics_updated_at
+        AFTER UPDATE ON topics
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+          UPDATE topics SET updated_at = CURRENT_TIMESTAMP WHERE rowid = NEW.rowid;
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_revisions_updated_at
+        AFTER UPDATE ON revisions
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+          UPDATE revisions SET updated_at = CURRENT_TIMESTAMP WHERE rowid = NEW.rowid;
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_sessions_updated_at
+        AFTER UPDATE ON study_sessions
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+          UPDATE study_sessions SET updated_at = CURRENT_TIMESTAMP WHERE rowid = NEW.rowid;
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_tasks_updated_at
+        AFTER UPDATE ON tasks
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+          UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE rowid = NEW.rowid;
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_settings_updated_at
+        AFTER UPDATE ON app_settings
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+          UPDATE app_settings SET updated_at = CURRENT_TIMESTAMP WHERE rowid = NEW.rowid;
+        END
+        """,
+    )
+
+    with active_engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))

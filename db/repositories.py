@@ -40,7 +40,7 @@ class TopicRepository:
             name=name,
             description=notes,
             difficulty=level,
-            estimated_minutes={"easy": 15, "medium": 25, "hard": 35}.get(level, 25),
+            estimated_minutes={"easy": 15, "medium": 30, "hard": 45}.get(level, 30),
         )
         self.session.add(topic)
         self.session.flush()

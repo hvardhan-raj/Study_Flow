@@ -116,7 +116,7 @@ class TopicService:
         self.session.flush()
 
         if auto_schedule and topic.status != "completed":
-            first_revision = self.scheduler.schedule_new_topic(topic.id)
+            first_revision = self.scheduler.create_first_revision(topic.id)
             self._adjust_initial_schedule_for_exam(topic, first_revision)
             self.session.flush()
 
@@ -209,7 +209,7 @@ class TopicService:
 
     def _default_estimated_minutes(self, difficulty: DifficultyLevel | str) -> int:
         key = self._difficulty_value(difficulty)
-        return {"easy": 15, "medium": 25, "hard": 35}.get(key, 25)
+        return {"easy": 15, "medium": 30, "hard": 45}.get(key, 30)
 
     def _mastery_from_difficulty(self, difficulty: DifficultyLevel | str, supplied: float | None) -> float:
         if supplied is not None:
