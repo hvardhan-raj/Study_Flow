@@ -260,14 +260,14 @@ Rectangle {
                         ColumnLayout {
                             spacing: 4
                             Text {
-                                text: "Notifications & Data"
+                                text: "Automation & Data"
                                 font.pixelSize: 16
                                 font.bold: true
                                 font.family: "Segoe UI"
                                 color: "#0F172A"
                             }
                             Text {
-                                text: "Toggle reminder behavior and manage local history."
+                                text: "Keep scheduling automatic and manage local history."
                                 font.pixelSize: 11
                                 font.family: "Segoe UI"
                                 color: "#94A3B8"
@@ -301,11 +301,7 @@ Rectangle {
                                         }
 
                                         Text {
-                                            text: modelData.key === "notifications"
-                                                ? "Enable or mute in-app alerts and toast updates."
-                                                : (modelData.key === "reminders"
-                                                    ? "Control scheduled reminder generation."
-                                                    : "Automatically rebalance revision dates after changes.")
+                                            text: "Automatically rebalance revision dates after changes."
                                             font.pixelSize: 10
                                             font.family: "Segoe UI"
                                             color: "#64748B"

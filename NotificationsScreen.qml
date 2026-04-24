@@ -70,18 +70,18 @@ Rectangle {
 
                                 Text {
                                     text: modelData.value
-                                    font.pixelSize: 22
+                                    font.pixelSize: 24
                                     font.bold: true
                                     font.family: "Segoe UI"
-                                    color: "#0F172A"
+                                    color: modelData.color
                                 }
 
                                 Text {
                                     text: modelData.label
-                                    font.pixelSize: 10
-                                    font.letterSpacing: 1.1
+                                    font.pixelSize: 11
+                                    font.bold: true
                                     font.family: "Segoe UI"
-                                    color: "#94A3B8"
+                                    color: "#334155"
                                 }
                             }
                         }
@@ -235,8 +235,8 @@ Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: digestCol.implicitHeight + 32
                     radius: 18
-                    color: "#EFF6FF"
-                    border.color: "#BFDBFE"
+                    color: "#FFFFFF"
+                    border.color: "#E2E8F0"
                     border.width: 1
 
                     ColumnLayout {
@@ -247,64 +247,72 @@ Rectangle {
 
                         RowLayout {
                             spacing: 8
-                            AppIcon { name: "calendar"; tint: "#1D4ED8"; size: 16 }
-                            Text { text: "Today's Digest"; font.pixelSize: 14; font.bold: true; font.family: "Segoe UI"; color: "#1D4ED8" }
+                            AppIcon { name: backend.todayDigest.overdueCount > 0 ? "alert" : "calendar"; tint: backend.todayDigest.tone || "#1D4ED8"; size: 16 }
+                            Text { text: "Today's Digest"; font.pixelSize: 14; font.bold: true; font.family: "Segoe UI"; color: "#0F172A" }
+                            Item { Layout.fillWidth: true }
+                            TagPill {
+                                tagText: backend.todayDigest.overdueCount > 0 ? "Overdue focus" : (backend.todayDigest.dueTodayCount > 0 ? "Due today" : "Clear")
+                                tagColor: backend.todayDigest.tone || "#3B82F6"
+                            }
                         }
 
                         Text {
                             text: backend.todayDigest.summary
-                            font.pixelSize: 12
+                            font.pixelSize: 13
+                            font.bold: true
                             font.family: "Segoe UI"
-                            color: "#1E40AF"
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: "#BFDBFE" }
-
-                        Text {
-                            text: backend.todayDigest.nextSession
-                            font.pixelSize: 11
-                            font.family: "Segoe UI"
-                            color: "#334155"
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-
-                        AppButton { label: "View Schedule"; iconName: "calendar"; variant: "primary"; small: true; onClicked: navigation.navigateToRoute("schedule") }
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: prefCol.implicitHeight + 32
-                    radius: 18
-                    color: "#FFFFFF"
-                    border.color: "#EEF2F8"
-                    border.width: 1
-
-                    ColumnLayout {
-                        id: prefCol
-                        anchors.fill: parent
-                        anchors.margins: 16
-                        spacing: 10
-
-                        Text { text: "Reminder Preferences"; font.pixelSize: 14; font.bold: true; font.family: "Segoe UI"; color: "#0F172A" }
-
-                        Text {
-                            text: backend.reminderPreferences.summary
-                            font.pixelSize: 11
-                            font.family: "Segoe UI"
-                            color: "#64748B"
+                            color: "#0F172A"
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                         }
 
                         RowLayout {
-                            spacing: 8
-                            TagPill { tagText: backend.reminderPreferences.enabled ? "Daily check on" : "Daily check off"; tagColor: backend.reminderPreferences.enabled ? "#10B981" : "#94A3B8" }
-                            TagPill { tagText: "Next " + backend.reminderPreferences.next_run; tagColor: "#3B82F6" }
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Repeater {
+                                model: [
+                                    { label: "Unread", value: backend.todayDigest.unread, color: "#3B82F6" },
+                                    { label: "Overdue", value: backend.todayDigest.overdueCount, color: "#EF4444" },
+                                    { label: "Due Today", value: backend.todayDigest.dueTodayCount, color: "#F59E0B" }
+                                ]
+
+                                delegate: Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 58
+                                    radius: 12
+                                    color: Qt.rgba(modelData.color.r, modelData.color.g, modelData.color.b, 0.08)
+                                    border.color: Qt.rgba(modelData.color.r, modelData.color.g, modelData.color.b, 0.16)
+
+                                    Column {
+                                        anchors.centerIn: parent
+                                        spacing: 3
+                                        Text { text: modelData.value; font.pixelSize: 18; font.bold: true; font.family: "Segoe UI"; color: modelData.color; horizontalAlignment: Text.AlignHCenter }
+                                        Text { text: modelData.label; font.pixelSize: 10; font.bold: true; font.family: "Segoe UI"; color: "#334155"; horizontalAlignment: Text.AlignHCenter }
+                                    }
+                                }
+                            }
                         }
+
+                        Text {
+                            text: backend.todayDigest.nextSession
+                            font.pixelSize: 11
+                            font.family: "Segoe UI"
+                            color: "#475569"
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        Text {
+                            visible: backend.todayDigest.nextSubject && backend.todayDigest.nextSubject.length > 0
+                            text: backend.todayDigest.nextSubject
+                            font.pixelSize: 10
+                            font.bold: true
+                            font.family: "Segoe UI"
+                            color: backend.todayDigest.tone || "#3B82F6"
+                        }
+
+                        AppButton { label: "View Schedule"; iconName: "calendar"; variant: "primary"; small: true; onClicked: navigation.navigateToRoute("schedule") }
                     }
                 }
 
@@ -368,39 +376,78 @@ Rectangle {
 
                         Text { text: "Alert Settings"; font.pixelSize: 14; font.bold: true; font.family: "Segoe UI"; color: "#0F172A" }
 
-                        Repeater {
-                            model: backend.alertSettings
-                            delegate: RowLayout {
-                                Layout.fillWidth: true
+                        ScrollView {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            contentWidth: availableWidth
+
+                            ColumnLayout {
+                                width: parent.width
                                 spacing: 10
 
-                                Rectangle { width: 4; height: 22; radius: 2; color: modelData.color }
+                                Repeater {
+                                    model: backend.alertSettings
+                                    delegate: Rectangle {
+                                        Layout.fillWidth: true
+                                        implicitHeight: settingCol.implicitHeight + 22
+                                        radius: 14
+                                        color: "#F8FAFC"
+                                        border.color: "#E2E8F0"
 
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 1
-                                    Text { text: modelData.label; font.pixelSize: 11; font.bold: true; font.family: "Segoe UI"; color: "#334155" }
-                                    Text { text: modelData.description; font.pixelSize: 9; font.family: "Segoe UI"; color: "#94A3B8"; Layout.fillWidth: true; elide: Text.ElideRight }
-                                }
+                                        ColumnLayout {
+                                            id: settingCol
+                                            anchors.fill: parent
+                                            anchors.margins: 12
+                                            spacing: 8
 
-                                Rectangle {
-                                    width: 40
-                                    height: 22
-                                    radius: 11
-                                    color: modelData.on ? modelData.color : "#D1D9E6"
-                                    Behavior on color { ColorAnimation { duration: 160 } }
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 10
 
-                                    Rectangle {
-                                        width: 18
-                                        height: 18
-                                        radius: 9
-                                        color: "#FFFFFF"
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        x: modelData.on ? parent.width - width - 2 : 2
-                                        Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                Rectangle { width: 4; height: 22; radius: 2; color: modelData.color }
+
+                                                Text {
+                                                    text: modelData.label
+                                                    font.pixelSize: 11
+                                                    font.bold: true
+                                                    font.family: "Segoe UI"
+                                                    color: "#334155"
+                                                    Layout.fillWidth: true
+                                                    wrapMode: Text.WordWrap
+                                                }
+
+                                                Rectangle {
+                                                    width: 40
+                                                    height: 22
+                                                    radius: 11
+                                                    color: modelData.on ? modelData.color : "#D1D9E6"
+                                                    Behavior on color { ColorAnimation { duration: 160 } }
+
+                                                    Rectangle {
+                                                        width: 18
+                                                        height: 18
+                                                        radius: 9
+                                                        color: "#FFFFFF"
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        x: modelData.on ? parent.width - width - 2 : 2
+                                                        Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                    }
+
+                                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: backend.toggleAlertSetting(modelData.key) }
+                                                }
+                                            }
+
+                                            Text {
+                                                text: modelData.description
+                                                font.pixelSize: 10
+                                                font.family: "Segoe UI"
+                                                color: "#64748B"
+                                                Layout.fillWidth: true
+                                                wrapMode: Text.WordWrap
+                                            }
+                                        }
                                     }
-
-                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: backend.toggleAlertSetting(modelData.key) }
                                 }
                             }
                         }

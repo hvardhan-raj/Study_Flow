@@ -80,13 +80,6 @@ Item {
             }
 
             Item { width: 8 }
-
-            Rectangle {
-                width: 10
-                height: 10
-                radius: 5
-                color: "#3B82F6"
-            }
         }
     }
 }

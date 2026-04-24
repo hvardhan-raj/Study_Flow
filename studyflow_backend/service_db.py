@@ -198,6 +198,7 @@ class StudyFlowBackend(QObject):
             for index, notification in enumerate(state.get("notifications", build_default_notifications()))
         ]
         self._toasts: list[dict[str, Any]] = []
+        self._projection_cache: dict[str, Any] = {}
 
     def _save(self) -> None:
         save_state(
@@ -215,6 +216,7 @@ class StudyFlowBackend(QObject):
         )
 
     def _emit(self) -> None:
+        self._projection_cache.clear()
         self.stateChanged.emit()
 
     @Slot()
@@ -500,11 +502,19 @@ class StudyFlowBackend(QObject):
 
     @property
     def _topics(self) -> list[dict[str, Any]]:
-        return self._all_topics()
+        cached = self._projection_cache.get("topics")
+        if cached is None:
+            cached = self._all_topics()
+            self._projection_cache["topics"] = cached
+        return cached
 
     @property
     def _tasks(self) -> list[dict[str, Any]]:
-        return [self._serialize_task(revision) for revision in self._all_revisions()]
+        cached = self._projection_cache.get("tasks")
+        if cached is None:
+            cached = [self._serialize_task(revision) for revision in self._all_revisions()]
+            self._projection_cache["tasks"] = cached
+        return cached
 
     def _open_task_rows(self) -> list[dict[str, Any]]:
         return [task for task in self._tasks if not task["completed"]]
@@ -513,7 +523,12 @@ class StudyFlowBackend(QObject):
         return bool(task.get("completed"))
 
     def _task_payload(self, task: dict[str, Any]) -> dict[str, Any]:
-        return self._view_model.task_payload(task)
+        cache_key = f"task_payload:{task['id']}"
+        cached = self._projection_cache.get(cache_key)
+        if cached is None:
+            cached = self._view_model.task_payload(task)
+            self._projection_cache[cache_key] = cached
+        return cached
 
     def _task_bucket(self, task: dict[str, Any]) -> str:
         return self._view_model.task_bucket(task)
@@ -531,7 +546,12 @@ class StudyFlowBackend(QObject):
         return self._view_model.dashboard_task_payload(task)
 
     def _tasks_for_bucket(self, bucket: str) -> list[dict[str, Any]]:
-        return self._view_model.tasks_for_bucket(bucket)
+        cache_key = f"bucket:{bucket}"
+        cached = self._projection_cache.get(cache_key)
+        if cached is None:
+            cached = self._view_model.tasks_for_bucket(bucket)
+            self._projection_cache[cache_key] = cached
+        return cached
 
     def _filtered_topics(self) -> list[dict[str, Any]]:
         return self._view_model.filtered_topics()
@@ -761,6 +781,9 @@ class StudyFlowBackend(QObject):
 
     @Property("QVariantList", notify=stateChanged)
     def weekCompletion(self) -> list[dict[str, Any]]:
+        cached = self._projection_cache.get("week_completion")
+        if cached is not None:
+            return cached
         today = self._today
         start_of_week = today - timedelta(days=today.weekday())
         rows = []
@@ -770,11 +793,16 @@ class StudyFlowBackend(QObject):
             completed = len([task for task in day_tasks if task["completed"]])
             scheduled = len(day_tasks)
             rows.append({"day": day.strftime("%a"), "date": day.strftime("%d"), "completed": completed, "scheduled": scheduled, "remaining": max(0, scheduled - completed), "isToday": day == today})
+        self._projection_cache["week_completion"] = rows
         return rows
 
     @Property("QVariantList", notify=stateChanged)
     def calendarCells(self) -> list[dict[str, Any]]:
         import calendar
+        cache_key = f"calendar_cells:{self._calendar_view_date.isoformat()}:{self._selected_date.isoformat()}"
+        cached = self._projection_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
         cal = calendar.Calendar(firstweekday=0)
         cells = []
@@ -807,7 +835,9 @@ class StudyFlowBackend(QObject):
                     "indicatorColors": indicator_colors[:4],
                     "statusColor": indicator_colors[0] if indicator_colors else "#CBD5E1",
                 })
-        return cells[:42]
+        cells = cells[:42]
+        self._projection_cache[cache_key] = cells
+        return cells
 
     @Property("QVariantList", notify=stateChanged)
     def calendarLegend(self) -> list[dict[str, Any]]:
@@ -832,9 +862,15 @@ class StudyFlowBackend(QObject):
 
     @Property("QVariantList", notify=stateChanged)
     def selectedDaySessions(self) -> list[dict[str, Any]]:
+        cache_key = f"selected_sessions:{self._selected_date.isoformat()}"
+        cached = self._projection_cache.get(cache_key)
+        if cached is not None:
+            return cached
         tasks = [task for task in self._tasks if task["scheduled_at"].date() == self._selected_date]
         tasks.sort(key=lambda item: item["scheduled_at"])
-        return [{"id": task["id"], "topic": task["topic"], "name": task["topic"], "subject": task["subject"], "duration": task["duration_minutes"], "time": task["scheduled_at"].strftime("%H:%M"), "durationText": f"{task['duration_minutes']} min", "color": self._task_payload(task)["subjectColor"], "subjectColor": self._task_payload(task)["subjectColor"], "status": self._task_payload(task)["status"], "statusColor": self._task_payload(task)["statusColor"], "completed": task["completed"]} for task in tasks]
+        rows = [{"id": task["id"], "topic": task["topic"], "name": task["topic"], "subject": task["subject"], "duration": task["duration_minutes"], "time": task["scheduled_at"].strftime("%H:%M"), "durationText": f"{task['duration_minutes']} min", "color": self._task_payload(task)["subjectColor"], "subjectColor": self._task_payload(task)["subjectColor"], "status": self._task_payload(task)["status"], "statusColor": self._task_payload(task)["statusColor"], "completed": task["completed"]} for task in tasks]
+        self._projection_cache[cache_key] = rows
+        return rows
 
     @Property(str, notify=stateChanged)
     def selectedDayTotalText(self) -> str:
@@ -842,10 +878,15 @@ class StudyFlowBackend(QObject):
 
     @Property("QVariantMap", notify=stateChanged)
     def revisionWeekSummary(self) -> dict[str, Any]:
+        cached = self._projection_cache.get("revision_week_summary")
+        if cached is not None:
+            return cached
         rows = self.weekCompletion
         completed = sum(row["completed"] for row in rows)
         scheduled = sum(row["scheduled"] for row in rows)
-        return {"completed": completed, "remaining": sum(row["remaining"] for row in rows), "missed": len(self._tasks_for_bucket("overdue")), "score": round((completed / scheduled) * 100) if scheduled else 0, "scheduled": scheduled}
+        cached = {"completed": completed, "remaining": sum(row["remaining"] for row in rows), "missed": len(self._tasks_for_bucket("overdue")), "score": round((completed / scheduled) * 100) if scheduled else 0, "scheduled": scheduled}
+        self._projection_cache["revision_week_summary"] = cached
+        return cached
     @Property("QVariantList", notify=stateChanged)
     def subjectConfidence(self) -> list[dict[str, Any]]:
         rows = []
@@ -922,8 +963,12 @@ class StudyFlowBackend(QObject):
 
     @Property("QVariantList", notify=stateChanged)
     def notifications(self) -> list[dict[str, Any]]:
+        cached = self._projection_cache.get("notifications")
+        if cached is not None:
+            return cached
         rows = [self._normalize_notification(item, index) for index, item in enumerate(self._notifications)]
         rows.sort(key=lambda item: item["timestamp"], reverse=True)
+        self._projection_cache["notifications"] = rows
         return rows
 
     @Property("QVariantList", notify=stateChanged)
@@ -933,16 +978,35 @@ class StudyFlowBackend(QObject):
 
     @Property("QVariantMap", notify=stateChanged)
     def todayDigest(self) -> dict[str, Any]:
+        cached = self._projection_cache.get("today_digest")
+        if cached is not None:
+            return cached
         due_today = self._tasks_for_bucket("due_today")
         overdue = self._tasks_for_bucket("overdue")
-        next_task = due_today[0] if due_today else (self._tasks_for_bucket("upcoming")[0] if self._tasks_for_bucket("upcoming") else None)
+        upcoming = self._tasks_for_bucket("upcoming")
+        next_task = due_today[0] if due_today else (upcoming[0] if upcoming else None)
         if overdue:
             summary = f"{len(overdue)} overdue review{'s' if len(overdue) != 1 else ''} need attention first."
+            tone = "#EF4444"
         elif due_today:
             summary = f"{len(due_today)} review{'s' if len(due_today) != 1 else ''} are queued for today."
+            tone = "#F59E0B"
         else:
             summary = "No urgent revisions right now."
-        return {"summary": summary, "nextSession": f"Next session: {next_task['name']} for {next_task['durationMinutes']} min" if next_task else "No sessions scheduled.", "completedToday": len([task for task in self._tasks if task["completed"] and task["scheduled_at"].date() == self._today]), "unread": len([item for item in self.notifications if not item["read"]])}
+            tone = "#10B981"
+        completed_today = len([task for task in self._tasks if task["completed"] and task["scheduled_at"].date() == self._today])
+        cached = {
+            "summary": summary,
+            "tone": tone,
+            "overdueCount": len(overdue),
+            "dueTodayCount": len(due_today),
+            "completedToday": completed_today,
+            "unread": len([item for item in self.notifications if not item["read"]]),
+            "nextSession": f"Next session: {next_task['name']} for {next_task['durationMinutes']} min" if next_task else "No sessions scheduled.",
+            "nextSubject": next_task["subject"] if next_task else "",
+        }
+        self._projection_cache["today_digest"] = cached
+        return cached
 
     @Property("QVariantList", notify=stateChanged)
     def upcomingReminders(self) -> list[dict[str, Any]]:
@@ -950,16 +1014,10 @@ class StudyFlowBackend(QObject):
         tasks.sort(key=lambda item: item["scheduled_at"])
         return [{"id": task["id"], "title": task["topic"], "subject": task["subject"], "when": self._task_payload(task)["scheduledText"], "color": self._task_payload(task)["subjectColor"], "status": self._task_payload(task)["status"], "statusColor": self._task_payload(task)["statusColor"]} for task in tasks[:5]]
 
-    @Property("QVariantMap", notify=stateChanged)
-    def reminderPreferences(self) -> dict[str, Any]:
-        next_run = datetime.combine(self._today, time.fromisoformat(self._reminder_preferences["notification_time"]))
-        if next_run <= datetime.now():
-            next_run += timedelta(days=1)
-        return {**self._reminder_preferences, "next_run": next_run.strftime("%d %b, %H:%M"), "summary": f"Daily check at {self._reminder_preferences['notification_time']}, alert when {self._reminder_preferences['minimum_due_for_alert']}+ topic is due."}
-
     @Property("QVariantList", notify=stateChanged)
     def alertSettings(self) -> list[dict[str, Any]]:
-        return [{"key": key, "label": meta[0], "description": meta[1], "color": meta[2], "on": bool(self._alert_settings.get(key, False))} for key, meta in ALERT_SETTING_META.items()]
+        supported_keys = ("due_today", "overdue", "weekly_reports", "ai_suggestions")
+        return [{"key": key, "label": ALERT_SETTING_META[key][0], "description": ALERT_SETTING_META[key][1], "color": ALERT_SETTING_META[key][2], "on": bool(self._alert_settings.get(key, False))} for key in supported_keys]
 
     @Property("QVariantMap", notify=stateChanged)
     def assistantStatus(self) -> dict[str, Any]:
@@ -1011,7 +1069,7 @@ class StudyFlowBackend(QObject):
                     },
                 ],
             },
-            {"title": "Notifications", "rows": [{"label": "Push Alerts", "key": "notifications", "kind": "toggle", "toggleOn": bool(self._settings.get("notifications", {}).get("enabled", True))}, {"label": "Reminders", "key": "reminders", "kind": "toggle", "toggleOn": bool(self._settings.get("reminders", True))}, {"label": "Auto Schedule", "key": "auto_schedule", "kind": "toggle", "toggleOn": bool(self._settings.get("auto_schedule", True))}]},
+            {"title": "Notifications", "rows": [{"label": "Auto Schedule", "key": "auto_schedule", "kind": "toggle", "toggleOn": bool(self._settings.get("auto_schedule", True))}]},
         ]
 
     @Slot(str, str)
@@ -1360,18 +1418,25 @@ class StudyFlowBackend(QObject):
     @Slot(str)
     def selectCalendarDay(self, date_str: str) -> None:
         try:
-            self._selected_date = date.fromisoformat(date_str)
+            next_date = date.fromisoformat(date_str)
+            if next_date == self._selected_date:
+                return
+            self._selected_date = next_date
             self._emit()
         except ValueError:
             return
 
     @Slot()
     def selectToday(self) -> None:
+        if self._selected_date == self._today:
+            return
         self._selected_date = self._today
         self._emit()
 
     @Slot()
     def goToToday(self) -> None:
+        if self._selected_date == self._today and self._calendar_view_date == self._today:
+            return
         self._selected_date = self._today
         self._calendar_view_date = self._today
         self._emit()
@@ -1384,7 +1449,10 @@ class StudyFlowBackend(QObject):
         new_year = self._calendar_view_date.year + new_month // 12
         new_month = new_month % 12 + 1
         max_days = calendar.monthrange(new_year, new_month)[1]
-        self._calendar_view_date = self._calendar_view_date.replace(year=new_year, month=new_month, day=min(self._calendar_view_date.day, max_days))
+        next_view_date = self._calendar_view_date.replace(year=new_year, month=new_month, day=min(self._calendar_view_date.day, max_days))
+        if next_view_date == self._calendar_view_date:
+            return
+        self._calendar_view_date = next_view_date
         self._emit()
 
     @Slot()
