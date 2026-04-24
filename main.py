@@ -53,6 +53,7 @@ def main() -> int:
     reminder_scheduler.jobRequested.connect(backend.runReminderCheck, Qt.ConnectionType.QueuedConnection)
     reminder_scheduler.start()
     app.aboutToQuit.connect(reminder_scheduler.stop)
+    app.aboutToQuit.connect(backend.shutdown)
     # Keep Python-owned QObjects strongly referenced for the full Qt app lifetime.
     app._backend = backend
     app._navigation = navigation

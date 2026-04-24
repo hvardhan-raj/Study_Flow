@@ -40,370 +40,370 @@ Rectangle {
             ]
         }
 
-        ScrollView {
+        RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: availableWidth
-            clip: true
+            Layout.leftMargin: 24
+            Layout.rightMargin: 24
+            Layout.topMargin: 20
+            Layout.bottomMargin: 24
+            spacing: 16
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 3
+                Layout.fillHeight: true
+                radius: 18
+                color: "#FFFFFF"
+                border.color: "#E2E8F0"
+
+                ColumnLayout {
+                    id: calendarPanel
+                    anchors.fill: parent
+                    anchors.margins: 18
+                    spacing: 14
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        AppButton {
+                            label: "<"
+                            variant: "ghost"
+                            small: true
+                            onClicked: if (root.backendRef) root.backendRef.changeCalendarMonth(-1)
+                        }
+
+                        Text {
+                            text: root.monthLabel
+                            font.pixelSize: 17
+                            font.bold: true
+                            color: "#0F172A"
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        AppButton {
+                            label: ">"
+                            variant: "ghost"
+                            small: true
+                            onClicked: if (root.backendRef) root.backendRef.changeCalendarMonth(1)
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Repeater {
+                            model: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                            delegate: Text {
+                                Layout.fillWidth: true
+                                text: modelData
+                                font.pixelSize: 10
+                                font.bold: true
+                                color: "#94A3B8"
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+                        }
+                    }
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 7
+                        columnSpacing: 8
+                        rowSpacing: 8
+
+                        Repeater {
+                            model: root.monthCells
+
+                            delegate: Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 74
+                                radius: 12
+                                color: modelData.isSelected ? "#3B82F6" : (modelData.isToday ? "#EFF6FF" : "#F8FAFC")
+                                border.color: modelData.isSelected ? "#3B82F6" : (modelData.isToday ? "#BFDBFE" : "#E2E8F0")
+                                opacity: modelData.isValid ? 1.0 : 0.5
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 4
+
+                                    Text {
+                                        text: modelData.dayNum
+                                        visible: modelData.isValid
+                                        font.pixelSize: 13
+                                        font.bold: modelData.isToday || modelData.isSelected
+                                        color: modelData.isSelected ? "#FFFFFF" : "#1A2332"
+                                    }
+
+                                    Rectangle {
+                                        visible: modelData.taskCount > 0 && modelData.isValid
+                                        implicitWidth: 22
+                                        implicitHeight: 18
+                                        radius: 9
+                                        color: modelData.isSelected ? Qt.rgba(1, 1, 1, 0.18) : "#DBEAFE"
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: modelData.taskCount
+                                            font.pixelSize: 10
+                                            font.bold: true
+                                            color: modelData.isSelected ? "#FFFFFF" : "#2563EB"
+                                        }
+                                    }
+
+                                    Item { Layout.fillHeight: true }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: modelData.isValid && root.backendRef
+                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                    onClicked: root.backendRef.selectCalendarDay(modelData.dateStr)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             ColumnLayout {
-                width: parent.width
-                spacing: 18
+                Layout.fillWidth: true
+                Layout.preferredWidth: 2
+                Layout.fillHeight: true
+                spacing: 16
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: 18
+                    color: "#FFFFFF"
+                    border.color: "#E2E8F0"
+
+                    ColumnLayout {
+                        id: selectedPanel
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 12
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                text: root.dayLabel
+                                font.pixelSize: 16
+                                font.bold: true
+                                color: "#0F172A"
+                                Layout.fillWidth: true
+                            }
+                            TagPill {
+                                tagText: root.selectedSessions.length + (root.selectedSessions.length === 1 ? " session" : " sessions")
+                                tagColor: "#3B82F6"
+                            }
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+
+                            ListView {
+                                anchors.fill: parent
+                                clip: true
+                                spacing: 10
+                                model: root.selectedSessions
+
+                                delegate: Rectangle {
+                                    width: ListView.view ? ListView.view.width : parent.width
+                                    implicitHeight: 64
+                                    radius: 12
+                                    color: root.sessionBgColor(modelData)
+                                    border.color: Qt.rgba(root.sessionCardColor(modelData).r, root.sessionCardColor(modelData).g, root.sessionCardColor(modelData).b, 0.16)
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 12
+                                        spacing: 10
+
+                                        Rectangle {
+                                            Layout.preferredWidth: 4
+                                            Layout.fillHeight: true
+                                            radius: 2
+                                            color: root.sessionCardColor(modelData)
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 3
+
+                                            Text {
+                                                text: modelData.topic
+                                                font.pixelSize: 12
+                                                font.bold: true
+                                                color: "#0F172A"
+                                                elide: Text.ElideRight
+                                                Layout.fillWidth: true
+                                            }
+
+                                            RowLayout {
+                                                spacing: 6
+
+                                                Text { text: modelData.subject; font.pixelSize: 10; color: root.sessionCardColor(modelData) }
+                                                Text { text: modelData.time; font.pixelSize: 10; color: "#64748B" }
+                                                Text { text: modelData.durationText; font.pixelSize: 10; color: "#94A3B8" }
+                                            }
+                                        }
+
+                                        TagPill {
+                                            tagText: modelData.completed ? "Done" : modelData.status
+                                            tagColor: modelData.completed ? "#10B981" : root.sessionCardColor(modelData)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Text {
+                            visible: root.selectedSessions.length === 0
+                            text: "No sessions planned for this day."
+                            font.pixelSize: 11
+                            color: "#94A3B8"
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: 42
+                            radius: 10
+                            color: "#F8FAFC"
+                            border.color: "#E2E8F0"
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                Text { text: "Total scheduled"; font.pixelSize: 11; color: "#64748B"; Layout.fillWidth: true }
+                                Text { text: root.totalText; font.pixelSize: 12; font.bold: true; color: "#0F172A" }
+                            }
+                        }
+                    }
+                }
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
-                    Layout.topMargin: 20
                     spacing: 16
 
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredWidth: 3
                         radius: 18
                         color: "#FFFFFF"
                         border.color: "#E2E8F0"
-                        implicitHeight: calendarPanel.implicitHeight + 36
+                        implicitHeight: weekPanel.implicitHeight + 34
 
                         ColumnLayout {
-                            id: calendarPanel
+                            id: weekPanel
                             anchors.fill: parent
                             anchors.margins: 18
-                            spacing: 14
+                            spacing: 10
 
                             RowLayout {
                                 Layout.fillWidth: true
+                                Text { text: "This Week"; font.pixelSize: 15; font.bold: true; color: "#0F172A"; Layout.fillWidth: true }
+                                TagPill { tagText: root.weekSummary.score + "% complete"; tagColor: "#10B981" }
+                            }
 
-                                AppButton {
-                                    label: "<"
-                                    variant: "ghost"
-                                    small: true
-                                    onClicked: if (root.backendRef) root.backendRef.changeCalendarMonth(-1)
-                                }
-
-                                Text {
-                                    text: root.monthLabel
-                                    font.pixelSize: 17
-                                    font.bold: true
-                                    color: "#0F172A"
+                            Repeater {
+                                model: root.weekRows
+                                delegate: RowLayout {
                                     Layout.fillWidth: true
-                                    horizontalAlignment: Text.AlignHCenter
-                                }
+                                    spacing: 8
 
-                                AppButton {
-                                    label: ">"
-                                    variant: "ghost"
-                                    small: true
-                                    onClicked: if (root.backendRef) root.backendRef.changeCalendarMonth(1)
-                                }
-                            }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
-
-                                Repeater {
-                                    model: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-                                    delegate: Text {
-                                        Layout.fillWidth: true
-                                        text: modelData
-                                        font.pixelSize: 10
-                                        font.bold: true
-                                        color: "#94A3B8"
-                                        horizontalAlignment: Text.AlignHCenter
+                                    Text {
+                                        text: modelData.day
+                                        font.pixelSize: 11
+                                        font.bold: modelData.isToday
+                                        color: modelData.isToday ? "#2563EB" : "#64748B"
+                                        Layout.preferredWidth: 30
                                     }
-                                }
-                            }
 
-                            GridLayout {
-                                Layout.fillWidth: true
-                                columns: 7
-                                columnSpacing: 8
-                                rowSpacing: 8
-
-                                Repeater {
-                                    model: root.monthCells
-
-                                    delegate: Rectangle {
+                                    Rectangle {
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 74
-                                        radius: 12
-                                        color: modelData.isSelected ? "#3B82F6" : (modelData.isToday ? "#EFF6FF" : "#F8FAFC")
-                                        border.color: modelData.isSelected ? "#3B82F6" : (modelData.isToday ? "#BFDBFE" : "#E2E8F0")
-                                        opacity: modelData.isValid ? 1.0 : 0.5
+                                        implicitHeight: 8
+                                        radius: 4
+                                        color: "#E2E8F0"
 
-                                        ColumnLayout {
-                                            anchors.fill: parent
-                                            anchors.margins: 8
-                                            spacing: 4
-
-                                            Text {
-                                                text: modelData.dayNum
-                                                visible: modelData.isValid
-                                                font.pixelSize: 13
-                                                font.bold: modelData.isToday || modelData.isSelected
-                                                color: modelData.isSelected ? "#FFFFFF" : "#1A2332"
-                                            }
-
-                                            Rectangle {
-                                                visible: modelData.taskCount > 0 && modelData.isValid
-                                                implicitWidth: 22
-                                                implicitHeight: 18
-                                                radius: 9
-                                                color: modelData.isSelected ? Qt.rgba(1, 1, 1, 0.18) : "#DBEAFE"
-
-                                                Text {
-                                                    anchors.centerIn: parent
-                                                    text: modelData.taskCount
-                                                    font.pixelSize: 10
-                                                    font.bold: true
-                                                    color: modelData.isSelected ? "#FFFFFF" : "#2563EB"
-                                                }
-                                            }
-
-                                            Item { Layout.fillHeight: true }
+                                        Rectangle {
+                                            width: parent.width * (modelData.scheduled > 0 ? modelData.completed / modelData.scheduled : 0)
+                                            height: parent.height
+                                            radius: 4
+                                            color: modelData.completed === modelData.scheduled && modelData.scheduled > 0 ? "#10B981" : "#3B82F6"
                                         }
+                                    }
 
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            enabled: modelData.isValid && root.backendRef
-                                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                            onClicked: root.backendRef.selectCalendarDay(modelData.dateStr)
-                                        }
+                                    Text {
+                                        text: modelData.completed + "/" + modelData.scheduled
+                                        font.pixelSize: 10
+                                        color: "#94A3B8"
                                     }
                                 }
                             }
                         }
                     }
 
-                    ColumnLayout {
+                    Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredWidth: 2
-                        spacing: 16
+                        radius: 18
+                        color: "#FFFFFF"
+                        border.color: "#E2E8F0"
+                        implicitHeight: duePanel.implicitHeight + 34
 
-                        Rectangle {
-                            Layout.fillWidth: true
-                            radius: 18
-                            color: "#FFFFFF"
-                            border.color: "#E2E8F0"
-                            implicitHeight: selectedPanel.implicitHeight + 34
+                        ColumnLayout {
+                            id: duePanel
+                            anchors.fill: parent
+                            anchors.margins: 18
+                            spacing: 10
 
-                            ColumnLayout {
-                                id: selectedPanel
-                                anchors.fill: parent
-                                anchors.margins: 18
-                                spacing: 12
+                            Text { text: "Next Due"; font.pixelSize: 15; font.bold: true; color: "#0F172A" }
 
-                                RowLayout {
+                            Repeater {
+                                model: root.dueSoon
+                                delegate: RowLayout {
                                     Layout.fillWidth: true
-                                    Text {
-                                        text: root.dayLabel
-                                        font.pixelSize: 16
-                                        font.bold: true
-                                        color: "#0F172A"
+                                    spacing: 8
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 8
+                                        Layout.preferredHeight: 8
+                                        radius: 4
+                                        color: modelData.color
+                                    }
+
+                                    ColumnLayout {
                                         Layout.fillWidth: true
-                                    }
-                                    TagPill {
-                                        tagText: root.selectedSessions.length + (root.selectedSessions.length === 1 ? " session" : " sessions")
-                                        tagColor: "#3B82F6"
-                                    }
-                                }
-
-                                Repeater {
-                                    model: root.selectedSessions
-
-                                    delegate: Rectangle {
-                                        Layout.fillWidth: true
-                                        implicitHeight: 64
-                                        radius: 12
-                                        color: root.sessionBgColor(modelData)
-                                        border.color: Qt.rgba(root.sessionCardColor(modelData).r, root.sessionCardColor(modelData).g, root.sessionCardColor(modelData).b, 0.16)
-
-                                        RowLayout {
-                                            anchors.fill: parent
-                                            anchors.margins: 12
-                                            spacing: 10
-
-                                            Rectangle {
-                                                Layout.preferredWidth: 4
-                                                Layout.fillHeight: true
-                                                radius: 2
-                                                color: root.sessionCardColor(modelData)
-                                            }
-
-                                            ColumnLayout {
-                                                Layout.fillWidth: true
-                                                spacing: 3
-
-                                                Text {
-                                                    text: modelData.topic
-                                                    font.pixelSize: 12
-                                                    font.bold: true
-                                                    color: "#0F172A"
-                                                    elide: Text.ElideRight
-                                                    Layout.fillWidth: true
-                                                }
-
-                                                RowLayout {
-                                                    spacing: 6
-
-                                                    Text { text: modelData.subject; font.pixelSize: 10; color: root.sessionCardColor(modelData) }
-                                                    Text { text: modelData.time; font.pixelSize: 10; color: "#64748B" }
-                                                    Text { text: modelData.durationText; font.pixelSize: 10; color: "#94A3B8" }
-                                                }
-                                            }
-
-                                            TagPill {
-                                                tagText: modelData.completed ? "Done" : modelData.status
-                                                tagColor: modelData.completed ? "#10B981" : root.sessionCardColor(modelData)
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Text {
-                                    visible: root.selectedSessions.length === 0
-                                    text: "No sessions planned for this day."
-                                    font.pixelSize: 11
-                                    color: "#94A3B8"
-                                }
-
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    implicitHeight: 42
-                                    radius: 10
-                                    color: "#F8FAFC"
-                                    border.color: "#E2E8F0"
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 12
-                                        anchors.rightMargin: 12
-                                        Text { text: "Total scheduled"; font.pixelSize: 11; color: "#64748B"; Layout.fillWidth: true }
-                                        Text { text: root.totalText; font.pixelSize: 12; font.bold: true; color: "#0F172A" }
-                                    }
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 16
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                radius: 18
-                                color: "#FFFFFF"
-                                border.color: "#E2E8F0"
-                                implicitHeight: weekPanel.implicitHeight + 34
-
-                                ColumnLayout {
-                                    id: weekPanel
-                                    anchors.fill: parent
-                                    anchors.margins: 18
-                                    spacing: 10
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        Text { text: "This Week"; font.pixelSize: 15; font.bold: true; color: "#0F172A"; Layout.fillWidth: true }
-                                        TagPill { tagText: root.weekSummary.score + "% complete"; tagColor: "#10B981" }
-                                    }
-
-                                    Repeater {
-                                        model: root.weekRows
-                                        delegate: RowLayout {
+                                        spacing: 2
+                                        Text {
+                                            text: modelData.title
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                            color: "#0F172A"
+                                            elide: Text.ElideRight
                                             Layout.fillWidth: true
-                                            spacing: 8
-
-                                            Text {
-                                                text: modelData.day
-                                                font.pixelSize: 11
-                                                font.bold: modelData.isToday
-                                                color: modelData.isToday ? "#2563EB" : "#64748B"
-                                                Layout.preferredWidth: 30
-                                            }
-
-                                            Rectangle {
-                                                Layout.fillWidth: true
-                                                implicitHeight: 8
-                                                radius: 4
-                                                color: "#E2E8F0"
-
-                                                Rectangle {
-                                                    width: parent.width * (modelData.scheduled > 0 ? modelData.completed / modelData.scheduled : 0)
-                                                    height: parent.height
-                                                    radius: 4
-                                                    color: modelData.completed === modelData.scheduled && modelData.scheduled > 0 ? "#10B981" : "#3B82F6"
-                                                }
-                                            }
-
-                                            Text {
-                                                text: modelData.completed + "/" + modelData.scheduled
-                                                font.pixelSize: 10
-                                                color: "#94A3B8"
-                                            }
+                                        }
+                                        Text {
+                                            text: modelData.subject + " • " + modelData.when
+                                            font.pixelSize: 10
+                                            color: "#94A3B8"
+                                            elide: Text.ElideRight
+                                            Layout.fillWidth: true
                                         }
                                     }
                                 }
                             }
 
-                            Rectangle {
-                                Layout.fillWidth: true
-                                radius: 18
-                                color: "#FFFFFF"
-                                border.color: "#E2E8F0"
-                                implicitHeight: duePanel.implicitHeight + 34
-
-                                ColumnLayout {
-                                    id: duePanel
-                                    anchors.fill: parent
-                                    anchors.margins: 18
-                                    spacing: 10
-
-                                    Text { text: "Next Due"; font.pixelSize: 15; font.bold: true; color: "#0F172A" }
-
-                                    Repeater {
-                                        model: root.dueSoon
-                                        delegate: RowLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 8
-
-                                            Rectangle {
-                                                Layout.preferredWidth: 8
-                                                Layout.preferredHeight: 8
-                                                radius: 4
-                                                color: modelData.color
-                                            }
-
-                                            ColumnLayout {
-                                                Layout.fillWidth: true
-                                                spacing: 2
-                                                Text {
-                                                    text: modelData.title
-                                                    font.pixelSize: 11
-                                                    font.bold: true
-                                                    color: "#0F172A"
-                                                    elide: Text.ElideRight
-                                                    Layout.fillWidth: true
-                                                }
-                                                Text {
-                                                    text: modelData.subject + " • " + modelData.when
-                                                    font.pixelSize: 10
-                                                    color: "#94A3B8"
-                                                    elide: Text.ElideRight
-                                                    Layout.fillWidth: true
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    Text {
-                                        visible: root.dueSoon.length === 0
-                                        text: "No upcoming sessions."
-                                        font.pixelSize: 11
-                                        color: "#94A3B8"
-                                    }
-                                }
+                            Text {
+                                visible: root.dueSoon.length === 0
+                                text: "No upcoming sessions."
+                                font.pixelSize: 11
+                                color: "#94A3B8"
                             }
                         }
                     }
@@ -411,9 +411,6 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
-                    Layout.bottomMargin: 24
                     radius: 18
                     color: "#FFFFFF"
                     border.color: "#E2E8F0"

@@ -7,7 +7,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Property, QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, QMetaObject, Qt, Signal, Slot
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -29,6 +29,7 @@ from services import (
 )
 
 from .defaults import build_default_notifications, default_alert_settings
+from .ml_engine import LearningMLEngine
 from .models import SubjectMeta
 from .presenters import difficulty_color, task_payload
 from .storage import load_state, save_state
@@ -83,6 +84,7 @@ def seed_defaults(db: Session) -> None:
 
 class StudyFlowBackend(QObject):
     stateChanged = Signal()
+    intelligenceChanged = Signal()
 
     def __init__(self, store_path: Path | None = None, database_path: Path | None = None) -> None:
         super().__init__()
@@ -112,6 +114,13 @@ class StudyFlowBackend(QObject):
             study_minutes_provider=lambda: list(self._study_minutes),
         )
         self._ensure_database_ready()
+        self._ml_engine = LearningMLEngine(
+            session_factory=self._session_factory,
+            today_provider=lambda: self._today,
+            model_path=Path(__file__).resolve().parent.parent / "models" / "learning_model.pkl",
+            on_update=self._queue_intelligence_refresh,
+        )
+        self._ml_engine.start()
         self._refresh_reminder_notifications()
 
     def _db(self):
@@ -205,6 +214,27 @@ class StudyFlowBackend(QObject):
 
     def _emit(self) -> None:
         self.stateChanged.emit()
+
+    @Slot()
+    def _emit_intelligence_changed(self) -> None:
+        self.intelligenceChanged.emit()
+
+    def _queue_intelligence_refresh(self) -> None:
+        QMetaObject.invokeMethod(self, "_emit_intelligence_changed", Qt.ConnectionType.QueuedConnection)
+
+    def _request_intelligence_refresh(self, *, train: bool = False) -> None:
+        self._ml_engine.request_refresh(train=train)
+
+    def _mark_revision_completed_for_intelligence(self) -> None:
+        self._ml_engine.mark_revision_completed()
+
+    @Slot()
+    def shutdown(self) -> None:
+        self._ml_engine.stop()
+
+    @Slot()
+    def refreshIntelligence(self) -> None:
+        self._request_intelligence_refresh(train=not self._ml_engine.get_intelligence_dashboard().get("model_ready", False))
 
     @property
     def _today(self) -> date:
@@ -721,6 +751,17 @@ class StudyFlowBackend(QObject):
         rows.sort(key=lambda row: (-row["pct"], row["subject"]))
         return rows
 
+    @Slot(result="QVariantMap")
+    def getIntelligenceDashboard(self) -> dict[str, Any]:
+        return self.get_intelligence_dashboard()
+
+    def get_intelligence_dashboard(self) -> dict[str, Any]:
+        return self._ml_engine.get_intelligence_dashboard()
+
+    @Property("QVariantMap", notify=intelligenceChanged)
+    def intelligenceDashboard(self) -> dict[str, Any]:
+        return self.getIntelligenceDashboard()
+
     @Property("QVariantList", notify=stateChanged)
     def intelligenceStats(self) -> list[dict[str, Any]]:
         completed = len([task for task in self._tasks if task["completed"]])
@@ -887,18 +928,21 @@ class StudyFlowBackend(QObject):
         except IntegrityError:
             logger.warning("Subject already exists", extra={"subject": clean_name})
             return
+        self._request_intelligence_refresh()
         self._emit()
 
     @Slot(str, str)
     def renameSubject(self, subject_id: str, name: str) -> None:
         with self._db() as db:
             SubjectService(db).update_subject(subject_id, name=name.strip())
+        self._request_intelligence_refresh()
         self._emit()
 
     @Slot(str)
     def deleteSubject(self, subject_id: str) -> None:
         with self._db() as db:
             SubjectService(db).delete_subject(subject_id)
+        self._request_intelligence_refresh(train=True)
         self._emit()
 
     @Slot(str, str, str)
@@ -906,18 +950,21 @@ class StudyFlowBackend(QObject):
         level = DifficultyLevel((difficulty or "Medium").lower())
         with self._db() as db:
             TopicService(db, scheduler=self._scheduler(db)).create_topic(subject_id=subject_id, name=name.strip(), difficulty=level)
+        self._request_intelligence_refresh(train=True)
         self._emit()
 
     @Slot(str)
     def deleteTopic(self, topic_id: str) -> None:
         with self._db() as db:
             TopicService(db, scheduler=self._scheduler(db)).delete_topic(topic_id)
+        self._request_intelligence_refresh(train=True)
         self._emit()
 
     @Slot(str, int)
     def updateTopicProgress(self, topic_id: str, progress: int) -> None:
         with self._db() as db:
             TopicService(db, scheduler=self._scheduler(db)).update_topic(topic_id, progress=progress)
+        self._request_intelligence_refresh()
         self._emit()
 
     @Slot(result="QVariantList")
@@ -944,6 +991,7 @@ class StudyFlowBackend(QObject):
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
+        self._mark_revision_completed_for_intelligence()
         self._emit()
 
     @Slot(str)
@@ -957,6 +1005,7 @@ class StudyFlowBackend(QObject):
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
+        self._mark_revision_completed_for_intelligence()
         self._emit()
 
     @Slot(str, int)
@@ -971,6 +1020,7 @@ class StudyFlowBackend(QObject):
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
+        self._mark_revision_completed_for_intelligence()
         self._emit()
         self._add_notification("Revision Logged", f"Review marked {RATING_LABELS[max(1, min(int(rating), 4))]}.", "check_circle", "#10B981")
 
@@ -982,6 +1032,7 @@ class StudyFlowBackend(QObject):
             topic = service.create_topic(subject_id=subject_id, name=topic_name.strip(), difficulty=DifficultyLevel((difficulty or "Medium").lower()), auto_schedule=False)
             offset = {"overdue": -1, "today": 0, "tomorrow": 1, "this_week": 3}.get(schedule_key, 0)
             scheduler.create_first_revision(topic.id, scheduled_for=self._today + timedelta(days=offset))
+        self._request_intelligence_refresh(train=True)
         self._emit()
 
     @Slot(str)
@@ -991,6 +1042,7 @@ class StudyFlowBackend(QObject):
             if revision is None or revision.status != "open":
                 return
             self._scheduler(db).reschedule_after_miss(revision.id, reschedule_from=self._today + timedelta(days=1))
+        self._request_intelligence_refresh()
         self._emit()
 
     @Slot()
@@ -1075,12 +1127,14 @@ class StudyFlowBackend(QObject):
                 service.update_topic(topic_id, name=name.strip(), difficulty=level, notes=notes.strip())
             else:
                 service.create_topic(subject_id=subject_id, name=name.strip(), difficulty=level, notes=notes.strip())
+        self._request_intelligence_refresh(train=True)
         self._emit()
 
     @Slot(str)
     def markTopicComplete(self, topic_id: str) -> None:
         with self._db() as db:
             TopicService(db, scheduler=self._scheduler(db)).update_topic(topic_id, is_completed=True, completion_date=self._today, progress=100)
+        self._request_intelligence_refresh()
         self._emit()
 
     @Slot(str, result="QVariantMap")

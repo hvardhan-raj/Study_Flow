@@ -14,13 +14,13 @@ Smart Study Schedule System is an offline-first desktop study planner built with
 ## Requirements
 
 - Windows or Linux
-- Python `3.14`
+- Python `3.13`
 - A virtual environment is strongly recommended
 
 ## Quick Start
 
 ```powershell
-python -m venv .venv
+py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install --upgrade pip
 pip install -r requirements.txt
