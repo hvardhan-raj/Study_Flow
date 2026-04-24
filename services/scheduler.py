@@ -193,7 +193,7 @@ class SchedulerService:
         next_day = reschedule_from or (revision.due_at.date() + timedelta(days=1))
         revision.overdue_days = float(max((next_day - revision.due_at.date()).days, 0))
         revision.due_at = datetime.combine(next_day, self._preferred_time())
-        revision.notes = "sm2_rescheduled"
+        revision.notes = "sm2_rescheduled;manual_pin"
         self.session.flush()
         self.rebalance_schedule(start_date=next_day)
         return revision
@@ -214,28 +214,28 @@ class SchedulerService:
         for revision in revisions:
             grouped.setdefault(revision.due_at.date(), []).append(revision)
 
-        current_day = start_date or min(grouped)
         preferred_time = self._preferred_time()
         daily_limit = self._daily_time_minutes()
+        if start_date is not None:
+            grouped = {day: items for day, items in grouped.items() if day >= start_date}
+            if not grouped:
+                return
+            current_day = start_date
+        else:
+            current_day = min(revision.due_at.date() for revision in revisions)
 
         while grouped:
             if current_day not in grouped:
-                current_day = min(grouped)
+                future_days = [day for day in grouped if day >= current_day]
+                current_day = min(future_days) if future_days else min(grouped)
             day_revisions = grouped.pop(current_day)
-            day_revisions.sort(key=lambda item: (item.due_at, item.created_at, item.id))
+            scheduled, overflow = self._select_revisions_for_day(day_revisions, daily_limit)
 
             cursor = datetime.combine(current_day, preferred_time)
-            used_minutes = 0
-            overflow: list[Revision] = []
 
-            for revision in day_revisions:
+            for revision in scheduled:
                 duration = self._task_duration_minutes(revision.topic)
-                if used_minutes > 0 and used_minutes + duration > daily_limit:
-                    overflow.append(revision)
-                    continue
-
                 revision.due_at = cursor
-                used_minutes += duration
                 cursor += timedelta(minutes=duration + BUFFER_MINUTES)
 
             if overflow:
@@ -248,6 +248,103 @@ class SchedulerService:
                 current_day = min(grouped)
 
         self.session.flush()
+
+    def _select_revisions_for_day(
+        self,
+        day_revisions: list[Revision],
+        daily_limit: int,
+    ) -> tuple[list[Revision], list[Revision]]:
+        ordered = sorted(day_revisions, key=self._revision_sort_key)
+        if not ordered:
+            return [], []
+
+        candidate_subjects = self._candidate_subjects_for_day(ordered)
+        selected = [revision for revision in ordered if self._is_manual_pin(revision)]
+        selected_ids = {revision.id for revision in selected}
+        used_minutes = sum(self._task_duration_minutes(revision.topic) for revision in selected)
+
+        if len(candidate_subjects) <= 1:
+            for revision in ordered:
+                if revision.id in selected_ids:
+                    continue
+                duration = self._task_duration_minutes(revision.topic)
+                if selected and used_minutes + duration > daily_limit:
+                    break
+                selected.append(revision)
+                selected_ids.add(revision.id)
+                used_minutes += duration
+            if not selected:
+                return [ordered[0]], ordered[1:]
+            overflow = [revision for revision in ordered if revision.id not in selected_ids]
+            return selected, overflow
+
+        queues: dict[str, list[Revision]] = {
+            subject: [
+                revision
+                for revision in ordered
+                if revision.topic.subject.name == subject and revision.id not in selected_ids
+            ]
+            for subject in candidate_subjects
+        }
+        subject_counts = {subject: 0 for subject in candidate_subjects}
+        for revision in selected:
+            subject = revision.topic.subject.name
+            if subject in subject_counts:
+                subject_counts[subject] += 1
+
+        while True:
+            added = False
+            for subject in candidate_subjects:
+                queue = queues[subject]
+                if not queue:
+                    continue
+
+                revision = queue[0]
+                duration = self._task_duration_minutes(revision.topic)
+                if used_minutes + duration > daily_limit:
+                    continue
+
+                proposed_counts = dict(subject_counts)
+                proposed_counts[subject] += 1
+                if max(proposed_counts.values()) - min(proposed_counts.values()) > 1:
+                    continue
+
+                queue.pop(0)
+                selected.append(revision)
+                selected_ids.add(revision.id)
+                subject_counts[subject] += 1
+                used_minutes += duration
+                added = True
+
+            if not added:
+                break
+
+        if not selected:
+            return [ordered[0]], ordered[1:]
+        overflow = [revision for revision in ordered if revision.id not in selected_ids]
+        return selected, overflow
+
+    def _candidate_subjects_for_day(self, ordered: list[Revision]) -> list[str]:
+        subjects: list[str] = []
+        seen: set[str] = set()
+
+        for revision in ordered:
+            subject = revision.topic.subject.name
+            if subject in seen:
+                continue
+            seen.add(subject)
+            subjects.append(subject)
+            if len(subjects) == 3:
+                break
+
+        return subjects
+
+    def _revision_sort_key(self, revision: Revision) -> tuple[date, datetime, int]:
+        created_at = revision.created_at or revision.due_at
+        return (revision.due_at.date(), created_at, revision.id)
+
+    def _is_manual_pin(self, revision: Revision) -> bool:
+        return "manual_pin" in str(revision.notes or "")
 
     def get_due_today(self, *, for_date: date | None = None) -> list[Revision]:
         return self.get_tasks_for_date(for_date or self._today())

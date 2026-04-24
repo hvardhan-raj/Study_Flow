@@ -17,6 +17,9 @@
       "compact_ui": false
     },
     "notifications": {
+      "push_alerts": true,
+      "email_digest": false,
+      "reminder_before": "30 minutes",
       "enabled": true
     },
     "data": {
@@ -91,28 +94,28 @@
     {
       "id": "smart-due-2026-04-24",
       "title": "Today's Revision Queue",
-      "body": "24 reviews due today. Start with CIDR notation.",
-      "icon": "T",
+      "body": "8 reviews due today. Start with Discrete Mathematics.",
+      "icon": "calendar",
       "color": "#3B82F6",
       "read": false,
       "timestamp": "2026-04-24T01:12:05.453289",
-      "time": "Now"
+      "time": "10h ago"
     },
     {
       "id": "smart-overdue-2026-04-24",
       "title": "7 Overdue Reviews",
       "body": "Clear overdue material first to protect your recall schedule.",
-      "icon": "!",
+      "icon": "alert",
       "color": "#EF4444",
       "read": false,
       "timestamp": "2026-04-24T01:12:05.440774",
-      "time": "Now"
+      "time": "10h ago"
     },
     {
       "id": "smart-weekly-2026-17",
       "title": "Weekly Report Ready",
       "body": "You logged 70 minutes in recent sessions.",
-      "icon": "R",
+      "icon": "report",
       "color": "#8B5CF6",
       "read": true,
       "timestamp": "2026-04-21T22:22:28.266186",

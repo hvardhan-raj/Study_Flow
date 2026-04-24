@@ -111,6 +111,35 @@ def test_overflow_moves_remaining_tasks_to_next_day(session) -> None:
     assert day_two[0].due_at == datetime(2026, 4, 16, 18, 0, 0)
 
 
+def test_rebalance_balances_same_day_load_across_two_to_three_subjects(session) -> None:
+    session.merge(AppSetting(key="preferred_time", value="18:00"))
+    session.merge(AppSetting(key="daily_time_minutes", value="240"))
+
+    topic_repo = TopicRepository(session)
+    networks = topic_repo.create_subject("Computer Networks")
+    mathematics = topic_repo.create_subject("Engineering Mathematics")
+    scheduler = _build_scheduler(session, date(2026, 4, 24))
+
+    for index in range(7):
+        topic = topic_repo.create_topic(subject_id=networks.id, name=f"Networks {index + 1}", difficulty="medium")
+        scheduler.create_first_revision(topic.id, scheduled_for=date(2026, 4, 24))
+
+    topic = topic_repo.create_topic(subject_id=mathematics.id, name="Discrete Mathematics", difficulty="medium")
+    scheduler.create_first_revision(topic.id, scheduled_for=date(2026, 4, 24))
+
+    scheduler.rebalance_schedule(start_date=date(2026, 4, 24))
+    due_today = scheduler.get_tasks_for_date(date(2026, 4, 24))
+    session.commit()
+
+    subject_counts: dict[str, int] = {}
+    for revision in due_today:
+        subject = revision.topic.subject.name
+        subject_counts[subject] = subject_counts.get(subject, 0) + 1
+
+    assert len(subject_counts) == 2
+    assert max(subject_counts.values()) - min(subject_counts.values()) <= 1
+
+
 def test_reschedule_after_miss_keeps_single_open_revision(session) -> None:
     topic_repo = TopicRepository(session)
     subject = topic_repo.create_subject("Geography")

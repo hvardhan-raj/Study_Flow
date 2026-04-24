@@ -1162,7 +1162,11 @@ class StudyFlowBackend(QObject):
             service = TopicService(db, scheduler=scheduler)
             topic = service.create_topic(subject_id=subject_id, name=clean_topic_name, difficulty=DifficultyLevel((difficulty or "Medium").lower()), auto_schedule=False)
             offset = {"overdue": -1, "today": 0, "tomorrow": 1, "this_week": 3}.get(schedule_key, 0)
-            scheduler.create_first_revision(topic.id, scheduled_for=self._today + timedelta(days=offset))
+            scheduled_for = self._today + timedelta(days=offset)
+            revision = scheduler.create_first_revision(topic.id, scheduled_for=scheduled_for)
+            revision.notes = f"{revision.notes};manual_pin" if revision.notes else "manual_pin"
+            revision.due_at = datetime.combine(scheduled_for, scheduler._preferred_time())
+            scheduler.rebalance_schedule(start_date=scheduled_for)
         self._request_intelligence_refresh(train=True)
         self._show_toast("success", "Task Added", f"{clean_topic_name} was scheduled.")
         self._emit()
