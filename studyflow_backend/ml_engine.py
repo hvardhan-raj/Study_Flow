@@ -22,11 +22,23 @@ except Exception:  # pragma: no cover - optional dependency fallback
     RandomForestClassifier = None
 
 
-RATING_TO_TARGET = {
+RATING_TO_CLASS = {
+    "again": 3,
+    "hard": 2,
+    "good": 1,
+    "easy": 0,
+}
+RATING_TO_RISK = {
     "again": 1.0,
     "hard": 0.7,
     "good": 0.3,
     "easy": 0.0,
+}
+CLASS_TO_RISK = {
+    3: 1.0,
+    2: 0.7,
+    1: 0.3,
+    0: 0.0,
 }
 DIFFICULTY_ENCODING = {
     "easy": 1,
@@ -272,7 +284,10 @@ class LearningMLEngine:
         if self._model is not None and hasattr(self._model, "predict_proba"):
             probabilities = self._model.predict_proba([feature.as_vector()])[0]
             classes = getattr(self._model, "classes_", [])
-            expected_target = sum(float(label) * float(probability) for label, probability in zip(classes, probabilities))
+            expected_target = sum(
+                CLASS_TO_RISK.get(int(label), 0.5) * float(probability)
+                for label, probability in zip(classes, probabilities)
+            )
             return max(0.0, min(1.0, float(expected_target)))
         return self._heuristic_forgetting_risk(feature)
 
@@ -284,9 +299,9 @@ class LearningMLEngine:
         rating_component = min(feature.average_past_rating, 1.0) * 0.10
         return round(max(0.0, min(1.0, days_component + overdue_component + difficulty_component + history_component + rating_component)), 3)
 
-    def _build_training_dataset(self) -> tuple[list[list[float]], list[float]]:
+    def _build_training_dataset(self) -> tuple[list[list[float]], list[int]]:
         rows: list[list[float]] = []
-        targets: list[float] = []
+        targets: list[int] = []
         with self._session_factory() as session:
             completed_revisions = list(
                 session.scalars(
@@ -303,7 +318,7 @@ class LearningMLEngine:
             topic = revision.topic
             topic_id = int(topic.id)
             prior_revisions = revision_history[topic_id]
-            past_targets = [RATING_TO_TARGET.get(str(item.rating or "").lower(), 0.5) for item in prior_revisions if item.rating]
+            past_targets = [RATING_TO_RISK.get(str(item.rating or "").lower(), 0.5) for item in prior_revisions if item.rating]
             past_logs = [
                 log for log in logs_by_topic.get(topic_id, [])
                 if log.logged_at is not None and revision.completed_at is not None and log.logged_at < revision.completed_at
@@ -335,7 +350,7 @@ class LearningMLEngine:
                 estimated_minutes=float(topic.estimated_minutes or DEFAULT_ESTIMATED_MINUTES.get(difficulty_key, 30)),
                 stability=float(revision.stability or 0.0),
             )
-            target = RATING_TO_TARGET.get(str(revision.rating or "").lower())
+            target = RATING_TO_CLASS.get(str(revision.rating or "").lower())
             if target is not None:
                 rows.append(features.as_vector())
                 targets.append(target)
@@ -372,7 +387,7 @@ class LearningMLEngine:
                 [log for log in topic.performance_logs if log.logged_at is not None],
                 key=lambda item: (item.logged_at, item.id),
             )
-            past_targets = [RATING_TO_TARGET.get(str(log.outcome or "").lower(), 0.5) for log in logs if log.outcome]
+            past_targets = [RATING_TO_RISK.get(str(log.outcome or "").lower(), 0.5) for log in logs if log.outcome]
             average_past_rating = sum(past_targets) / len(past_targets) if past_targets else 0.5
             success_rate = sum(1 for log in logs if str(log.outcome or "").lower() in {"good", "easy"}) / len(logs) if logs else 0.0
             last_reviewed_at = latest_completed.completed_at if latest_completed is not None else topic.last_reviewed_at
