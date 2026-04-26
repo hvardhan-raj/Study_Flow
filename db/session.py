@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import datetime
+import logging
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, event, inspect, text
@@ -10,6 +12,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from config.settings import settings
 from models import Base
+
+logger = logging.getLogger(__name__)
 
 
 def build_sqlite_url(database_path: str | Path | None = None) -> str:
@@ -57,6 +61,7 @@ def create_session_factory(
     )
 
 
+@contextmanager
 def get_session(factory: sessionmaker[Session] | None = None) -> Generator[Session, None, None]:
     session_factory = factory or create_session_factory()
     session = session_factory()
@@ -91,7 +96,12 @@ def init_database(*, engine_override: Engine | None = None, database_path: str |
     if _database_needs_reset(active_engine, resolved_path):
         active_engine.dispose()
         if resolved_path.exists():
-            resolved_path.unlink()
+            backup_path = resolved_path.with_name(
+                f"{resolved_path.stem}.schema-mismatch-{datetime.now().strftime('%Y%m%dT%H%M%S')}{resolved_path.suffix}"
+            )
+            resolved_path.replace(backup_path)
+            logger.warning("Backed up schema-mismatched database from %s to %s", resolved_path, backup_path)
+        active_engine = engine_override or create_sqlite_engine(database_path=resolved_path)
     Base.metadata.create_all(active_engine)
     _ensure_sqlite_artifacts(active_engine)
 

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from .defaults import build_default_notifications, default_alert_settings, default_settings, default_study_minutes
+
+logger = logging.getLogger(__name__)
 
 
 def merge_nested(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
@@ -37,7 +40,11 @@ def load_state(store_path: Path) -> dict[str, Any]:
     if not store_path.exists():
         return state
 
-    payload = json.loads(store_path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(store_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Failed to load persisted state from %s", store_path)
+        return state
     if not isinstance(payload, dict):
         return state
 

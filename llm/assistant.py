@@ -50,7 +50,10 @@ class OllamaClient:
         return str(result.get("response", "")).strip()
 
     def stream(self, prompt: str, context: AssistantContext) -> Iterable[str]:
-        answer = self.generate(prompt, context)
+        try:
+            answer = self.generate(prompt, context)
+        except (OSError, URLError, TimeoutError, json.JSONDecodeError):
+            answer = ""
         for token in answer.split():
             yield token + " "
 

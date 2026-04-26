@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from models import DifficultyLevel, Subject, Topic
 from services.scheduler import SchedulerService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,7 @@ class SubjectService:
         try:
             subject = self.session.get(Subject, int(subject_id))
         except (TypeError, ValueError):
+            logger.warning("Subject lookup fell back to name matching for %r", subject_id)
             stmt = select(Subject).where(Subject.name == str(subject_id))
             subject = self.session.scalars(stmt).first()
         if subject is None:
@@ -165,10 +169,18 @@ class TopicService:
             topic.description = self._encode_metadata(notes, parent_topic_id if parent_topic_id not in (None, "") else self._parent_topic_id(topic.description))
         elif parent_topic_id not in (None, ""):
             topic.description = self._encode_metadata(self._notes_only(topic.description), parent_topic_id)
+        completed_state = topic.status == "completed"
+        archived_state = topic.status == "archived"
         if is_completed is not None:
-            topic.status = "completed" if is_completed else "active"
+            completed_state = is_completed
         if is_archived is not None:
-            topic.status = "archived" if is_archived else "active"
+            archived_state = is_archived
+        if archived_state:
+            topic.status = "archived"
+        elif completed_state:
+            topic.status = "completed"
+        else:
+            topic.status = "active"
         self.session.flush()
         return topic
 
@@ -204,6 +216,7 @@ class TopicService:
         try:
             subject = self.session.get(Subject, int(subject_id))
         except (TypeError, ValueError):
+            logger.warning("Subject lookup fell back to name matching for %r", subject_id)
             stmt = select(Subject).where(Subject.name == str(subject_id))
             subject = self.session.scalars(stmt).first()
         if subject is None:

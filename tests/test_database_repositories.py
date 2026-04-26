@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from db.repositories import RevisionRepository, SessionRepository, TopicRepository
+from db.session import get_session
 from models import ConfidenceRating, Revision, Topic
 
 
@@ -80,3 +81,10 @@ def test_revision_completion_updates_rating(session) -> None:
     assert stored_revision is not None
     assert stored_revision.status == "completed"
     assert stored_revision.rating == ConfidenceRating.GOOD.value
+
+
+def test_get_session_supports_context_manager(session) -> None:
+    factory = lambda: session  # noqa: E731
+
+    with get_session(factory) as db_session:
+        assert db_session is session

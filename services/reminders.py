@@ -8,6 +8,7 @@ from threading import Event, Thread
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
+from time_utils import local_now, naive_local_now
 
 @dataclass(frozen=True)
 class ReminderPreferences:
@@ -64,15 +65,15 @@ class ReminderScheduler(QObject):
             self.jobRequested.emit()
 
     def next_run_at(self, now: datetime | None = None) -> datetime:
-        current = now or datetime.now()
-        run_at = datetime.combine(current.date(), self.preferences.notification_time)
+        current = now or local_now()
+        run_at = datetime.combine(current.date(), self.preferences.notification_time, tzinfo=current.tzinfo)
         if run_at <= current:
             run_at += timedelta(days=1)
         return run_at
 
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
-            wait_seconds = max(1, int((self.next_run_at() - datetime.now()).total_seconds()))
+            wait_seconds = max(1, int((self.next_run_at() - local_now()).total_seconds()))
             if self._stop_event.wait(wait_seconds):
                 return
             self.run_once()
@@ -124,7 +125,7 @@ def build_exam_warnings(topics: list[dict[str, Any]], today: date, warning_days:
 
 
 def write_revision_calendar(tasks: list[dict[str, Any]], output_path: Path, now: datetime | None = None) -> Path:
-    timestamp = (now or datetime.now()).strftime("%Y%m%dT%H%M%S")
+    timestamp = (now or naive_local_now()).strftime("%Y%m%dT%H%M%S")
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
