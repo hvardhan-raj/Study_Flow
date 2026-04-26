@@ -1,4 +1,3 @@
-from .fsrs import FSRSParameters, FSRSScheduler, FSRSReviewResult, FSRSState
 from .reminders import (
     DesktopNotifier,
     ReminderPreferences,
@@ -12,10 +11,6 @@ from .topic_management import SubjectService, TopicService, TopicTreeNode
 
 __all__ = [
     "DesktopNotifier",
-    "FSRSParameters",
-    "FSRSReviewResult",
-    "FSRSScheduler",
-    "FSRSState",
     "ReminderPreferences",
     "ReminderScheduler",
     "SchedulerService",

@@ -5,7 +5,7 @@ import pickle
 import threading
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any, Callable
 

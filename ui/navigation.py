@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 DEFAULT_PAGES: list[dict[str, str]] = [
@@ -59,9 +57,3 @@ class NavigationController(QObject):
     @Slot()
     def goToPreviousPage(self) -> None:
         self.navigateToIndex((self._current_index - 1) % len(self._pages))
-
-    def page_for_route(self, route: str) -> dict[str, Any] | None:
-        index = self._route_to_index.get(route)
-        if index is None:
-            return None
-        return self._pages[index]
