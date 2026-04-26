@@ -37,11 +37,32 @@ class StudyFlowReadModel:
     def today(self) -> date:
         return self._today_provider()
 
+    def _normalized_subject_color(self, color: str) -> str:
+        value = str(color or "").strip() or "#64748B"
+        if not value.startswith("#") or len(value) != 7:
+            return "#64748B"
+        try:
+            red = int(value[1:3], 16)
+            green = int(value[3:5], 16)
+            blue = int(value[5:7], 16)
+        except ValueError:
+            return "#64748B"
+
+        luminance = (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
+        if luminance <= 165:
+            return value
+
+        scale = 165 / max(luminance, 1)
+        red = max(0, min(255, round(red * scale)))
+        green = max(0, min(255, round(green * scale)))
+        blue = max(0, min(255, round(blue * scale)))
+        return f"#{red:02X}{green:02X}{blue:02X}"
+
     def subject_meta(self, subject: Subject | None = None, *, name: str = "", color: str = "#64748B") -> SubjectMeta:
         label = subject.name if subject is not None else name
         shade = subject.color if subject is not None else color
         words = [part[:1] for part in label.split() if part]
-        return SubjectMeta(("".join(words)[:2] or "?").upper(), shade or "#64748B")
+        return SubjectMeta(("".join(words)[:2] or "?").upper(), self._normalized_subject_color(shade))
 
     def difficulty_label(self, difficulty: Any) -> str:
         value = difficulty.value if hasattr(difficulty, "value") else difficulty

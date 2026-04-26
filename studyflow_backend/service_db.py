@@ -613,10 +613,39 @@ class StudyFlowBackend(QObject):
         self._save()
         self._emit()
 
+    def _notify_system(self, title: str, body: str) -> bool:
+        try:
+            return self._desktop_notifier.notify(title, body)
+        except Exception:
+            logger.exception("Failed to dispatch desktop notification")
+            return False
+
+    def _upsert_automated_notification(
+        self,
+        notification_id: str,
+        title: str,
+        body: str,
+        icon: str,
+        color: str,
+        *,
+        read: bool = False,
+        desktop: bool = False,
+    ) -> bool:
+        existing = next((item for item in self._notifications if item["id"] == notification_id), None)
+        self._upsert_notification(notification_id, title, body, icon, color, read=read)
+        if existing is None:
+            self._notifications = self._notifications[:50]
+            self._save()
+            self._emit()
+            if desktop:
+                self._notify_system(title, body)
+            return True
+        return False
+
     def _refresh_reminder_notifications(self) -> None:
         overdue_count = len(self._tasks_for_bucket("overdue"))
         if self._alert_settings.get("overdue", True) and overdue_count:
-            self._upsert_notification(
+            self._upsert_automated_notification(
                 f"smart-overdue-{self._today.isoformat()}",
                 f"{overdue_count} Overdue Review{'s' if overdue_count != 1 else ''}",
                 "Clear overdue material first to protect your recall schedule.",
@@ -625,7 +654,7 @@ class StudyFlowBackend(QObject):
             )
         due_today = self._tasks_for_bucket("due_today")
         if self._alert_settings.get("due_today", True) and due_today:
-            self._upsert_notification(
+            self._upsert_automated_notification(
                 f"smart-due-{self._today.isoformat()}",
                 "Today's Revision Queue",
                 f"{len(due_today)} review{'s' if len(due_today) != 1 else ''} due today. Start with {due_today[0]['name']}.",
@@ -634,7 +663,7 @@ class StudyFlowBackend(QObject):
             )
         if self._alert_settings.get("weekly_reports", True):
             year, week, _ = self._today.isocalendar()
-            self._upsert_notification(
+            self._upsert_automated_notification(
                 f"smart-weekly-{year}-{week}",
                 "Weekly Report Ready",
                 f"You logged {self._weekly_study_minutes()} minutes in recent sessions.",
@@ -643,6 +672,31 @@ class StudyFlowBackend(QObject):
                 read=True,
             )
         self._save()
+
+    def _study_due_notifications(self, now: datetime) -> int:
+        if self._active_session is not None:
+            return 0
+        created = 0
+        current_naive = now.replace(tzinfo=None)
+        window_start = current_naive - timedelta(minutes=1)
+        for task in sorted(self._open_task_rows(), key=lambda item: item["scheduled_at"]):
+            scheduled_at = task["scheduled_at"]
+            if scheduled_at < window_start or scheduled_at > current_naive:
+                continue
+            notification_id = f"study-due-{task['id']}-{scheduled_at.strftime('%Y%m%dT%H%M')}"
+            title = f"Time to study: {task['topic']}"
+            body = f"{task['subject']} is scheduled now. Start a {task['durationMinutes']}-minute review block."
+            created += int(
+                self._upsert_automated_notification(
+                    notification_id,
+                    title,
+                    body,
+                    "play_arrow",
+                    task.get("subjectColor", "#3B82F6"),
+                    desktop=True,
+                )
+            )
+        return created
 
     def _assistant_context(self) -> AssistantContext:
         return AssistantContext(
@@ -1485,13 +1539,33 @@ class StudyFlowBackend(QObject):
         if not preferences.enabled:
             return 0
         created = 0
+        now = local_now()
+        if preferences.desktop_notifications:
+            created += self._study_due_notifications(now)
         summary = build_morning_summary(self._tasks_for_bucket("due_today"), self._tasks_for_bucket("overdue"), preferences.minimum_due_for_alert)
         if summary is not None and self._alert_settings.get("due_today", True):
-            self._add_notification(summary["title"], summary["body"], summary["icon"], summary["color"])
-            created += 1
+            created += int(
+                self._upsert_automated_notification(
+                    f"daily-summary-{self._today.isoformat()}",
+                    summary["title"],
+                    summary["body"],
+                    summary["icon"],
+                    summary["color"],
+                    desktop=preferences.desktop_notifications,
+                )
+            )
         for warning in build_exam_warnings(self._topics, self._today):
-            self._add_notification(warning["title"], warning["body"], warning["icon"], warning["color"])
-            created += 1
+            warning_key = warning["title"].lower().replace(" ", "-")
+            created += int(
+                self._upsert_automated_notification(
+                    f"exam-warning-{self._today.isoformat()}-{warning_key}",
+                    warning["title"],
+                    warning["body"],
+                    warning["icon"],
+                    warning["color"],
+                    desktop=preferences.desktop_notifications,
+                )
+            )
         return created
 
     def _reminder_preferences_model(self) -> ReminderPreferences:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -26,10 +28,38 @@ class DesktopNotifier:
         try:
             from plyer import notification
         except ImportError:
-            return False
+            notification = None
 
-        notification.notify(title=title, message=message, app_name=self.app_name, timeout=8)
-        return True
+        if notification is not None:
+            notification.notify(title=title, message=message, app_name=self.app_name, timeout=8)
+            return True
+
+        if sys.platform == "win32":
+            return self._notify_windows_balloon(title, message)
+        return False
+
+    def _notify_windows_balloon(self, title: str, message: str) -> bool:
+        script = f"""
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$notify = New-Object System.Windows.Forms.NotifyIcon
+$notify.Icon = [System.Drawing.SystemIcons]::Information
+$notify.BalloonTipTitle = {title!r}
+$notify.BalloonTipText = {message!r}
+$notify.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
+$notify.Visible = $true
+$notify.ShowBalloonTip(8000)
+Start-Sleep -Seconds 9
+$notify.Dispose()
+"""
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return completed.returncode == 0
 
 
 class ReminderScheduler(QObject):
@@ -39,17 +69,24 @@ class ReminderScheduler(QObject):
         self,
         job: Callable[[], None] | None = None,
         preferences: ReminderPreferences | None = None,
+        preferences_provider: Callable[[], ReminderPreferences] | None = None,
     ) -> None:
         super().__init__()
         self.job = job
         self.preferences = preferences or ReminderPreferences()
+        self.preferences_provider = preferences_provider
         self._stop_event = Event()
         self._thread: Thread | None = None
         if job is not None:
             self.jobRequested.connect(job)
 
+    def _preferences(self) -> ReminderPreferences:
+        if self.preferences_provider is not None:
+            return self.preferences_provider()
+        return self.preferences
+
     def start(self) -> None:
-        if not self.preferences.enabled or self._thread is not None:
+        if self._thread is not None:
             return
         self._thread = Thread(target=self._run_loop, name="studyflow-reminders", daemon=True)
         self._thread.start()
@@ -61,19 +98,25 @@ class ReminderScheduler(QObject):
         self._thread = None
 
     def run_once(self) -> None:
-        if self.preferences.enabled:
+        if self._preferences().enabled:
             self.jobRequested.emit()
 
     def next_run_at(self, now: datetime | None = None) -> datetime:
         current = now or local_now()
-        run_at = datetime.combine(current.date(), self.preferences.notification_time, tzinfo=current.tzinfo)
+        preferences = self._preferences()
+        run_at = datetime.combine(current.date(), preferences.notification_time, tzinfo=current.tzinfo)
         if run_at <= current:
             run_at += timedelta(days=1)
         return run_at
 
+    def next_check_delay_seconds(self, now: datetime | None = None) -> int:
+        current = now or local_now()
+        daily_wait = max(1, int((self.next_run_at(current) - current).total_seconds()))
+        return min(daily_wait, 60)
+
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
-            wait_seconds = max(1, int((self.next_run_at() - local_now()).total_seconds()))
+            wait_seconds = self.next_check_delay_seconds()
             if self._stop_event.wait(wait_seconds):
                 return
             self.run_once()
