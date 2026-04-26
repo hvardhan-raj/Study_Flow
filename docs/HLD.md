@@ -353,13 +353,3 @@ There is no separate deployment unit for backend services or databases.
 4. Formalize a stable migration-only schema evolution path and reduce automatic reset behavior.
 5. Add explicit repository/use-case boundaries if the backend continues to grow.
 
-## Source References
-
-- [main.py](/D:/4S/Study_Flow/main.py)
-- [studyflow_backend/service_db.py](/D:/4S/Study_Flow/studyflow_backend/service_db.py)
-- [studyflow_backend/viewmodels.py](/D:/4S/Study_Flow/studyflow_backend/viewmodels.py)
-- [services/scheduler.py](/D:/4S/Study_Flow/services/scheduler.py)
-- [services/topic_management.py](/D:/4S/Study_Flow/services/topic_management.py)
-- [db/session.py](/D:/4S/Study_Flow/db/session.py)
-- [models/base.py](/D:/4S/Study_Flow/models/base.py)
-- [studyflow_backend/storage.py](/D:/4S/Study_Flow/studyflow_backend/storage.py)
