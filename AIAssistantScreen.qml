@@ -166,7 +166,7 @@ Rectangle {
                                     model: backend.assistantPrompts
                                     delegate: AppButton {
                                         label: modelData.label; variant: "secondary"; small: true
-                                        onClicked: { messageInput.text = modelData.prompt; messageInput.forceActiveFocus() }
+                                        onClicked: root.sendPrompt(modelData.prompt)
                                     }
                                 }
                             }

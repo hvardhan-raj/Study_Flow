@@ -340,6 +340,97 @@ Rectangle {
                         Rectangle {
                             Layout.fillWidth: true
                             radius: 16
+                            color: "#FFFFFF"
+                            border.color: "#E2E8F0"
+                            implicitHeight: alertBlock.implicitHeight + 24
+
+                            ColumnLayout {
+                                id: alertBlock
+                                anchors.fill: parent
+                                anchors.margins: 16
+                                spacing: 10
+
+                                Text {
+                                    text: "Alert Settings"
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    font.family: "Segoe UI"
+                                    color: "#0F172A"
+                                }
+
+                                Repeater {
+                                    model: backend.alertSettings
+                                    delegate: Rectangle {
+                                        Layout.fillWidth: true
+                                        radius: 14
+                                        color: "#F8FAFC"
+                                        border.color: "#E2E8F0"
+                                        implicitHeight: settingCol.implicitHeight + 22
+
+                                        ColumnLayout {
+                                            id: settingCol
+                                            anchors.fill: parent
+                                            anchors.margins: 12
+                                            spacing: 8
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 10
+
+                                                Rectangle { width: 4; height: 22; radius: 2; color: modelData.color }
+
+                                                Text {
+                                                    text: modelData.label
+                                                    font.pixelSize: 11
+                                                    font.bold: true
+                                                    font.family: "Segoe UI"
+                                                    color: "#334155"
+                                                    Layout.fillWidth: true
+                                                    wrapMode: Text.WordWrap
+                                                }
+
+                                                Rectangle {
+                                                    width: 40
+                                                    height: 22
+                                                    radius: 11
+                                                    color: modelData.on ? modelData.color : "#D1D9E6"
+                                                    Behavior on color { ColorAnimation { duration: 160 } }
+
+                                                    Rectangle {
+                                                        width: 18
+                                                        height: 18
+                                                        radius: 9
+                                                        color: "#FFFFFF"
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        x: modelData.on ? parent.width - width - 2 : 2
+                                                        Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                    }
+
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: backend.toggleAlertSetting(modelData.key)
+                                                    }
+                                                }
+                                            }
+
+                                            Text {
+                                                text: modelData.description
+                                                font.pixelSize: 10
+                                                font.family: "Segoe UI"
+                                                color: "#64748B"
+                                                Layout.fillWidth: true
+                                                wrapMode: Text.WordWrap
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            radius: 16
                             color: "#FEF2F2"
                             border.color: "#FECACA"
                             implicitHeight: dangerBlock.implicitHeight + 24

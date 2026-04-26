@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from models import Revision, Subject, Topic
-from services import SchedulerService
 from studyflow_backend.models import SubjectMeta
 from studyflow_backend.presenters import difficulty_color, task_payload
 
@@ -38,11 +37,32 @@ class StudyFlowReadModel:
     def today(self) -> date:
         return self._today_provider()
 
+    def _normalized_subject_color(self, color: str) -> str:
+        value = str(color or "").strip() or "#64748B"
+        if not value.startswith("#") or len(value) != 7:
+            return "#64748B"
+        try:
+            red = int(value[1:3], 16)
+            green = int(value[3:5], 16)
+            blue = int(value[5:7], 16)
+        except ValueError:
+            return "#64748B"
+
+        luminance = (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
+        if luminance <= 165:
+            return value
+
+        scale = 165 / max(luminance, 1)
+        red = max(0, min(255, round(red * scale)))
+        green = max(0, min(255, round(green * scale)))
+        blue = max(0, min(255, round(blue * scale)))
+        return f"#{red:02X}{green:02X}{blue:02X}"
+
     def subject_meta(self, subject: Subject | None = None, *, name: str = "", color: str = "#64748B") -> SubjectMeta:
         label = subject.name if subject is not None else name
         shade = subject.color if subject is not None else color
         words = [part[:1] for part in label.split() if part]
-        return SubjectMeta(("".join(words)[:2] or "?").upper(), shade or "#64748B")
+        return SubjectMeta(("".join(words)[:2] or "?").upper(), self._normalized_subject_color(shade))
 
     def difficulty_label(self, difficulty: Any) -> str:
         value = difficulty.value if hasattr(difficulty, "value") else difficulty
@@ -104,7 +124,7 @@ class StudyFlowReadModel:
             "difficulty": difficulty,
             "scheduled_at": revision.due_at,
             "confidence": self.confidence_for_topic(topic),
-            "duration_minutes": topic.estimated_minutes or DIFFICULTY_TO_DURATION[difficulty],
+            "duration_minutes": topic.estimated_minutes or DIFFICULTY_TO_DURATION.get(difficulty, 30),
             "completed_at": revision.completed_at,
             "status": revision.status,
             "completed": revision.status != "open",
@@ -117,7 +137,6 @@ class StudyFlowReadModel:
 
     def all_revisions(self) -> list[Revision]:
         with self._db_factory() as db:
-            SchedulerService(db).rebalance_schedule()
             stmt = (
                 select(Revision)
                 .options(joinedload(Revision.topic).joinedload(Topic.subject))

@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+from time_utils import local_now
 from studyflow_backend.service import StudyFlowBackend
 
 
@@ -66,3 +69,44 @@ def test_manual_reminder_check_creates_notifications(tmp_path) -> None:
 
     assert created >= 1
     assert len(backend.notifications) > before
+
+
+def test_study_due_notification_fires_once_for_scheduled_task(tmp_path) -> None:
+    backend = StudyFlowBackend(tmp_path / "notifications_state.json")
+    calls: list[tuple[str, str]] = []
+
+    class FakeNotifier:
+        def notify(self, title: str, message: str) -> bool:
+            calls.append((title, message))
+            return True
+
+    now = local_now()
+    backend._desktop_notifier = FakeNotifier()
+    backend._projection_cache["tasks"] = [
+        {
+            "id": "task-1",
+            "topic": "Photosynthesis",
+            "subject": "Biology",
+            "scheduled_at": now.replace(tzinfo=None),
+            "completed": False,
+            "durationMinutes": 25,
+            "subjectColor": "#3B82F6",
+        },
+        {
+            "id": "task-2",
+            "topic": "Old Task",
+            "subject": "History",
+            "scheduled_at": (now - timedelta(minutes=3)).replace(tzinfo=None),
+            "completed": False,
+            "durationMinutes": 25,
+            "subjectColor": "#F59E0B",
+        },
+    ]
+
+    created_first = backend._study_due_notifications(now)
+    created_second = backend._study_due_notifications(now)
+
+    assert created_first == 1
+    assert created_second == 0
+    assert len(calls) == 1
+    assert calls[0][0] == "Time to study: Photosynthesis"

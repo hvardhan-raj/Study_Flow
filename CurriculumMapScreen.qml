@@ -184,13 +184,18 @@ Rectangle {
                                     width: 34
                                     height: 34
                                     radius: 10
-                                    color: Qt.rgba(modelData.accentColor.r, modelData.accentColor.g, modelData.accentColor.b, 0.12)
+                                    color: Qt.rgba(subjectData.accentColor.r, subjectData.accentColor.g, subjectData.accentColor.b, 0.14)
+                                    border.width: 1
+                                    border.color: Qt.rgba(subjectData.accentColor.r, subjectData.accentColor.g, subjectData.accentColor.b, 0.26)
 
                                     Text {
                                         anchors.centerIn: parent
-                                        text: subjectData.iconText
-                                        font.pixelSize: 15
-                                        color: subjectData.accentColor
+                                        text: (subjectData.iconText && subjectData.iconText.length > 0)
+                                            ? subjectData.iconText
+                                            : String(subjectData.subjectName || "?").slice(0, 2).toUpperCase()
+                                        font.pixelSize: 12
+                                        font.bold: true
+                                        color: "#0F172A"
                                     }
                                 }
 

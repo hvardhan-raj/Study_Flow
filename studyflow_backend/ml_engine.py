@@ -5,7 +5,7 @@ import pickle
 import threading
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any, Callable
 
@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from models import PerformanceLog, Revision, Topic
+from time_utils import local_now
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ class TopicFeatures:
             float(self.average_past_rating),
             float(self.success_rate),
             float(self.estimated_minutes),
+            float(self.stability),
         ]
 
 
@@ -128,6 +130,7 @@ class LearningMLEngine:
         self._pending_completed_revisions = 0
         self._train_requested = True
         self._refresh_requested = True
+        self._state_lock = threading.RLock()
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -147,17 +150,19 @@ class LearningMLEngine:
             self._thread.join(timeout=timeout)
 
     def request_refresh(self, *, train: bool = False) -> None:
-        if train:
-            self._train_requested = True
-        self._refresh_requested = True
+        with self._state_lock:
+            if train:
+                self._train_requested = True
+            self._refresh_requested = True
         self._wake_event.set()
 
     def mark_revision_completed(self) -> None:
-        self._pending_completed_revisions += 1
-        self._refresh_requested = True
-        if self._pending_completed_revisions >= self._retrain_threshold:
-            self._train_requested = True
-            self._pending_completed_revisions = 0
+        with self._state_lock:
+            self._pending_completed_revisions += 1
+            self._refresh_requested = True
+            if self._pending_completed_revisions >= self._retrain_threshold:
+                self._train_requested = True
+                self._pending_completed_revisions = 0
         self._wake_event.set()
 
     def get_intelligence_dashboard(self) -> dict[str, Any]:
@@ -165,15 +170,21 @@ class LearningMLEngine:
 
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
+            with self._state_lock:
+                train_requested = self._train_requested
+                refresh_requested = self._refresh_requested
+                self._train_requested = False
+                self._refresh_requested = False
             try:
-                if self._train_requested or not self._model_ready:
+                if train_requested or not self._model_ready:
                     self.train_model()
-                if self._refresh_requested or not self.get_intelligence_dashboard()["last_updated"]:
+                if refresh_requested or not self.get_intelligence_dashboard()["last_updated"]:
                     self.compute_all_topic_predictions()
             except Exception:
+                with self._state_lock:
+                    self._train_requested = self._train_requested or train_requested
+                    self._refresh_requested = self._refresh_requested or refresh_requested
                 logger.exception("Background learning intelligence refresh failed")
-            self._train_requested = False
-            self._refresh_requested = False
             self._wake_event.wait(self._refresh_interval_seconds)
             self._wake_event.clear()
 
@@ -269,7 +280,7 @@ class LearningMLEngine:
         dashboard = {
             "model_ready": self._model_ready,
             "engine_mode": "ml" if self._model_ready else "heuristic",
-            "last_updated": datetime.now().isoformat(timespec="seconds"),
+            "last_updated": local_now().isoformat(timespec="seconds"),
             "retention_score": retention_score,
             "high_risk_topics": ordered_by_risk[:5],
             "recommended_topics": ordered_by_priority[:5],

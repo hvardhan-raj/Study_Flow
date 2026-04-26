@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import csv
 import logging
@@ -32,15 +32,14 @@ from services import (
 from .defaults import build_default_notifications, default_alert_settings
 from .ml_engine import LearningMLEngine
 from .models import SubjectMeta
-from .presenters import difficulty_color, task_payload
 from .storage import load_state, save_state
 from .viewmodels import StudyFlowReadModel
+from time_utils import ensure_local_timezone, local_now, naive_local_now
 
 logger = logging.getLogger(__name__)
 
 CONFIDENCE_MAX = 5
 RATING_LABELS = {1: "Again", 2: "Hard", 3: "Good", 4: "Easy"}
-RATING_TO_PROGRESS = {1: -6, 2: 2, 3: 6, 4: 10}
 DIFFICULTY_TO_DURATION = {"Easy": 15, "Medium": 30, "Hard": 45}
 DEFAULT_SCHEDULE_SETTINGS = {
     "daily_time_minutes": "120",
@@ -304,7 +303,7 @@ class StudyFlowBackend(QObject):
         subject = active_session.get("subject", "")
         try:
             parsed_id = int(session_id)
-            parsed_started_at = datetime.fromisoformat(str(started_at))
+            parsed_started_at = ensure_local_timezone(datetime.fromisoformat(str(started_at)))
         except (TypeError, ValueError):
             return None
         return {
@@ -328,8 +327,8 @@ class StudyFlowBackend(QObject):
                 "startedAt": "",
                 "timerText": "00:00:00",
             }
-        started_at = datetime.fromisoformat(active_session["started_at"])
-        elapsed_seconds = max(0, round((datetime.now() - started_at).total_seconds()))
+        started_at = ensure_local_timezone(datetime.fromisoformat(active_session["started_at"]))
+        elapsed_seconds = max(0, round((local_now() - started_at).total_seconds()))
         elapsed_minutes = max(0, elapsed_seconds // 60)
         topic = active_session.get("topic", "")
         subject = active_session.get("subject", "")
@@ -349,10 +348,10 @@ class StudyFlowBackend(QObject):
         }
 
     def _notification_timestamp(self, index: int) -> datetime:
-        return datetime.combine(self._today, time(12, 0)) - timedelta(minutes=index)
+        return datetime.combine(self._today, time(12, 0), tzinfo=local_now().tzinfo) - timedelta(minutes=index)
 
     def _relative_time_label(self, timestamp: datetime) -> str:
-        delta = datetime.now() - timestamp
+        delta = local_now() - ensure_local_timezone(timestamp)
         if delta.days > 0:
             return "Yesterday" if delta.days == 1 else f"{delta.days}d ago"
         minutes = max(0, round(delta.total_seconds() / 60))
@@ -375,7 +374,7 @@ class StudyFlowBackend(QObject):
         item["icon"] = self._normalize_icon_name(item.get("icon", "info"))
         item.setdefault("color", "#3B82F6")
         item["read"] = bool(item.get("read", False))
-        item["timestamp"] = parsed_timestamp.isoformat()
+        item["timestamp"] = ensure_local_timezone(parsed_timestamp).isoformat()
         item["time"] = self._relative_time_label(parsed_timestamp)
         return item
 
@@ -403,7 +402,7 @@ class StudyFlowBackend(QObject):
             "warning": {"color": "#F59E0B", "icon": "alert"},
         }.get(level, {"color": "#3B82F6", "icon": "info"})
         return {
-            "id": f"toast-{datetime.now().timestamp():.6f}",
+            "id": f"toast-{local_now().timestamp():.6f}",
             "level": level,
             "title": title,
             "message": message,
@@ -460,10 +459,10 @@ class StudyFlowBackend(QObject):
             try:
                 parsed_timestamp = datetime.fromisoformat(timestamp)
             except ValueError:
-                parsed_timestamp = datetime.now()
+                parsed_timestamp = local_now()
         else:
-            parsed_timestamp = datetime.now()
-        item["timestamp"] = parsed_timestamp.isoformat()
+            parsed_timestamp = local_now()
+        item["timestamp"] = ensure_local_timezone(parsed_timestamp).isoformat()
         item["time"] = parsed_timestamp.strftime("%H:%M")
         return item
 
@@ -600,7 +599,7 @@ class StudyFlowBackend(QObject):
                 "icon": icon,
                 "color": color,
                 "read": read if existing is None else existing.get("read", read),
-                "timestamp": existing.get("timestamp") if existing else datetime.now().isoformat(),
+                "timestamp": existing.get("timestamp") if existing else local_now().isoformat(),
             }
         )
         if existing is None:
@@ -614,10 +613,39 @@ class StudyFlowBackend(QObject):
         self._save()
         self._emit()
 
+    def _notify_system(self, title: str, body: str) -> bool:
+        try:
+            return self._desktop_notifier.notify(title, body)
+        except Exception:
+            logger.exception("Failed to dispatch desktop notification")
+            return False
+
+    def _upsert_automated_notification(
+        self,
+        notification_id: str,
+        title: str,
+        body: str,
+        icon: str,
+        color: str,
+        *,
+        read: bool = False,
+        desktop: bool = False,
+    ) -> bool:
+        existing = next((item for item in self._notifications if item["id"] == notification_id), None)
+        self._upsert_notification(notification_id, title, body, icon, color, read=read)
+        if existing is None:
+            self._notifications = self._notifications[:50]
+            self._save()
+            self._emit()
+            if desktop:
+                self._notify_system(title, body)
+            return True
+        return False
+
     def _refresh_reminder_notifications(self) -> None:
         overdue_count = len(self._tasks_for_bucket("overdue"))
         if self._alert_settings.get("overdue", True) and overdue_count:
-            self._upsert_notification(
+            self._upsert_automated_notification(
                 f"smart-overdue-{self._today.isoformat()}",
                 f"{overdue_count} Overdue Review{'s' if overdue_count != 1 else ''}",
                 "Clear overdue material first to protect your recall schedule.",
@@ -626,7 +654,7 @@ class StudyFlowBackend(QObject):
             )
         due_today = self._tasks_for_bucket("due_today")
         if self._alert_settings.get("due_today", True) and due_today:
-            self._upsert_notification(
+            self._upsert_automated_notification(
                 f"smart-due-{self._today.isoformat()}",
                 "Today's Revision Queue",
                 f"{len(due_today)} review{'s' if len(due_today) != 1 else ''} due today. Start with {due_today[0]['name']}.",
@@ -635,7 +663,7 @@ class StudyFlowBackend(QObject):
             )
         if self._alert_settings.get("weekly_reports", True):
             year, week, _ = self._today.isocalendar()
-            self._upsert_notification(
+            self._upsert_automated_notification(
                 f"smart-weekly-{year}-{week}",
                 "Weekly Report Ready",
                 f"You logged {self._weekly_study_minutes()} minutes in recent sessions.",
@@ -644,6 +672,31 @@ class StudyFlowBackend(QObject):
                 read=True,
             )
         self._save()
+
+    def _study_due_notifications(self, now: datetime) -> int:
+        if self._active_session is not None:
+            return 0
+        created = 0
+        current_naive = now.replace(tzinfo=None)
+        window_start = current_naive - timedelta(minutes=1)
+        for task in sorted(self._open_task_rows(), key=lambda item: item["scheduled_at"]):
+            scheduled_at = task["scheduled_at"]
+            if scheduled_at < window_start or scheduled_at > current_naive:
+                continue
+            notification_id = f"study-due-{task['id']}-{scheduled_at.strftime('%Y%m%dT%H%M')}"
+            title = f"Time to study: {task['topic']}"
+            body = f"{task['subject']} is scheduled now. Start a {task['durationMinutes']}-minute review block."
+            created += int(
+                self._upsert_automated_notification(
+                    notification_id,
+                    title,
+                    body,
+                    "play_arrow",
+                    task.get("subjectColor", "#3B82F6"),
+                    desktop=True,
+                )
+            )
+        return created
 
     def _assistant_context(self) -> AssistantContext:
         return AssistantContext(
@@ -955,9 +1008,10 @@ class StudyFlowBackend(QObject):
             return [{"title": "Add Topics", "body": "Create topics so StudyFlow can build analytics.", "color": "#3B82F6", "severity": "Info"}]
         weakest = min(self._topics, key=lambda topic: (topic["confidence"], topic["progress"]))
         strongest = max(self._topics, key=lambda topic: (topic["progress"], topic["confidence"]))
+        overdue = self._tasks_for_bucket("overdue")
         return [
             {"title": f"Prioritize {weakest['name']}", "body": f"{weakest['subject']} needs a short active-recall pass.", "color": "#EF4444" if weakest["confidence"] <= 2 else "#F59E0B", "severity": "Focus"},
-            {"title": "Clear Overdue Load", "body": f"{len(self._tasks_for_bucket('overdue'))} overdue review(s) are influencing the recall score.", "color": "#EF4444" if self._tasks_for_bucket('overdue') else "#10B981", "severity": "Schedule"},
+            {"title": "Clear Overdue Load", "body": f"{len(overdue)} overdue review(s) are influencing the recall score.", "color": "#EF4444" if overdue else "#10B981", "severity": "Schedule"},
             {"title": f"Keep {strongest['subject']} Warm", "body": f"{strongest['name']} is one of your strongest topics.", "color": "#10B981", "severity": "Maintain"},
         ]
 
@@ -1163,10 +1217,7 @@ class StudyFlowBackend(QObject):
         safe_rating = max(1, min(int(rating), 4))
         with self._db() as db:
             scheduler = self._scheduler(db)
-            scheduler.review(topic_id, _rating_from_int(safe_rating), completed_at=datetime.now())
-            topic = db.get(Topic, int(topic_id))
-            if topic is not None:
-                topic.mastery_score = max(0, min(100, (topic.mastery_score or 0) + RATING_TO_PROGRESS[safe_rating]))
+            scheduler.review(topic_id, _rating_from_int(safe_rating), completed_at=naive_local_now())
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
@@ -1181,8 +1232,7 @@ class StudyFlowBackend(QObject):
                 self._show_toast("error", "Task Update Failed", "That task is no longer available.")
                 return
             topic_name = revision.topic.name
-            self._scheduler(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=datetime.now())
-            revision.topic.mastery_score = max(0, min(100, (revision.topic.mastery_score or 0) + RATING_TO_PROGRESS[3]))
+            self._scheduler(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=naive_local_now())
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
@@ -1199,8 +1249,7 @@ class StudyFlowBackend(QObject):
                 return
             safe_rating = max(1, min(int(rating), 4))
             topic_name = revision.topic.name
-            self._scheduler(db).record_revision(revision.id, rating=_rating_from_int(safe_rating), completed_at=datetime.now())
-            revision.topic.mastery_score = max(0, min(100, (revision.topic.mastery_score or 0) + RATING_TO_PROGRESS[safe_rating]))
+            self._scheduler(db).record_revision(revision.id, rating=_rating_from_int(safe_rating), completed_at=naive_local_now())
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
@@ -1261,8 +1310,7 @@ class StudyFlowBackend(QObject):
                     )
                 )
                 for revision in revisions:
-                    self._scheduler(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=datetime.now())
-                    revision.topic.mastery_score = max(0, min(100, (revision.topic.mastery_score or 0) + RATING_TO_PROGRESS[3]))
+                    self._scheduler(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=naive_local_now())
                     completed_count += 1
         except Exception:
             logger.exception("Failed to mark visible tasks done")
@@ -1296,7 +1344,7 @@ class StudyFlowBackend(QObject):
             revision = db.scalars(stmt).first()
             topic = revision.topic if revision is not None else None
             subject = topic.subject if topic is not None else None
-            started_at = datetime.now()
+            started_at = naive_local_now()
             study_session = StudySession(
                 subject_id=subject.id if subject is not None else None,
                 topic_id=topic.id if topic is not None else None,
@@ -1308,7 +1356,7 @@ class StudyFlowBackend(QObject):
             db.flush()
             self._active_session = {
                 "id": study_session.id,
-                "started_at": started_at.isoformat(),
+                "started_at": ensure_local_timezone(started_at).isoformat(),
                 "topic": topic.name if topic is not None else "",
                 "subject": subject.name if subject is not None else "",
             }
@@ -1326,13 +1374,13 @@ class StudyFlowBackend(QObject):
         if active_session is None:
             return
 
-        started_at = datetime.fromisoformat(active_session["started_at"])
-        ended_at = datetime.now()
+        started_at = ensure_local_timezone(datetime.fromisoformat(active_session["started_at"]))
+        ended_at = local_now()
         duration_minutes = max(1, round((ended_at - started_at).total_seconds() / 60))
         with self._db() as db:
             session_row = db.get(StudySession, int(active_session["id"]))
             if session_row is not None:
-                session_row.ended_at = ended_at
+                session_row.ended_at = ended_at.replace(tzinfo=None)
                 session_row.duration_minutes = duration_minutes
                 session_row.focus_score = float(self._average_confidence_pct())
                 if active_session.get("topic"):
@@ -1491,18 +1539,42 @@ class StudyFlowBackend(QObject):
         if not preferences.enabled:
             return 0
         created = 0
+        now = local_now()
+        if preferences.desktop_notifications:
+            created += self._study_due_notifications(now)
         summary = build_morning_summary(self._tasks_for_bucket("due_today"), self._tasks_for_bucket("overdue"), preferences.minimum_due_for_alert)
         if summary is not None and self._alert_settings.get("due_today", True):
-            self._add_notification(summary["title"], summary["body"], summary["icon"], summary["color"])
-            created += 1
+            created += int(
+                self._upsert_automated_notification(
+                    f"daily-summary-{self._today.isoformat()}",
+                    summary["title"],
+                    summary["body"],
+                    summary["icon"],
+                    summary["color"],
+                    desktop=preferences.desktop_notifications,
+                )
+            )
         for warning in build_exam_warnings(self._topics, self._today):
-            self._add_notification(warning["title"], warning["body"], warning["icon"], warning["color"])
-            created += 1
+            warning_key = warning["title"].lower().replace(" ", "-")
+            created += int(
+                self._upsert_automated_notification(
+                    f"exam-warning-{self._today.isoformat()}-{warning_key}",
+                    warning["title"],
+                    warning["body"],
+                    warning["icon"],
+                    warning["color"],
+                    desktop=preferences.desktop_notifications,
+                )
+            )
         return created
 
     def _reminder_preferences_model(self) -> ReminderPreferences:
         hour, minute = self._reminder_preferences["notification_time"].split(":", maxsplit=1)
         return ReminderPreferences(enabled=bool(self._reminder_preferences["enabled"]), notification_time=time(hour=int(hour), minute=int(minute)), minimum_due_for_alert=int(self._reminder_preferences["minimum_due_for_alert"]), desktop_notifications=bool(self._reminder_preferences["desktop_notifications"]))
+
+    @Property("QVariantMap", notify=stateChanged)
+    def reminderPreferences(self) -> dict[str, Any]:
+        return dict(self._reminder_preferences)
 
     @Slot(str, str)
     def updateReminderPreference(self, key: str, value: str) -> None:

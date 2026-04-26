@@ -50,3 +50,26 @@ def test_llm_status_reports_offline_setup_guidance() -> None:
     assert status["available"] is False
     assert status["provider"] == "Ollama"
     assert "offline guidance" in status["message"]
+
+
+def test_llm_service_handles_all_canned_assistant_prompts_offline() -> None:
+    service = LLMService(client=FakeClient(False))
+    context = AssistantContext(
+        due_today=[{"name": "Photosynthesis", "subject": "Biology"}],
+        overdue=[{"name": "Kinematics Review", "subject": "Physics"}],
+        weak_subjects=[{"subject": "Physics", "risk": "High", "pct": 42}],
+        upcoming_reminders=[{"title": "Midterm checkpoint", "when": "Tomorrow 09:00"}],
+        digest={"summary": "1 overdue, 1 due today"},
+    )
+
+    prompts = {
+        "What should I study today?": "Kinematics Review",
+        "Explain Photosynthesis with a quick recall plan.": "Photosynthesis",
+        "Which subject needs attention?": "Physics",
+        "Am I on track for my exam?": "Midterm checkpoint",
+    }
+
+    for prompt, expected in prompts.items():
+        response = service.answer(prompt, context)
+        assert response["source"] == "offline"
+        assert expected in response["text"]

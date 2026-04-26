@@ -49,7 +49,7 @@ def main() -> int:
     store_path.parent.mkdir(parents=True, exist_ok=True)
     backend = StudyFlowBackend(store_path)
     navigation = NavigationController()
-    reminder_scheduler = ReminderScheduler(preferences=backend._reminder_preferences_model())
+    reminder_scheduler = ReminderScheduler(preferences_provider=backend._reminder_preferences_model)
     reminder_scheduler.jobRequested.connect(backend.runReminderCheck, Qt.ConnectionType.QueuedConnection)
     reminder_scheduler.start()
     app.aboutToQuit.connect(reminder_scheduler.stop)

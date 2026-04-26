@@ -41,7 +41,7 @@ def task_payload(today: date, subject_meta: SubjectMeta, task: dict[str, Any]) -
         "topic": task["topic"],
         "name": task["topic"],
         "subject": task["subject"],
-        "subjectShort": "Maths" if task["subject"] == "Mathematics" else task["subject"],
+        "subjectShort": task["subject"],
         "difficulty": task["difficulty"],
         "time": f"{task['duration_minutes']}m",
         "status": status,

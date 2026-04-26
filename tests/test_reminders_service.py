@@ -75,3 +75,14 @@ def test_reminder_scheduler_run_once_emits_connected_job() -> None:
     scheduler.run_once()
 
     assert calls == ["ran"]
+
+
+def test_reminder_scheduler_checks_at_least_once_per_minute() -> None:
+    scheduler = ReminderScheduler(
+        lambda: None,
+        ReminderPreferences(notification_time=datetime.strptime("08:00", "%H:%M").time()),
+    )
+
+    delay = scheduler.next_check_delay_seconds(datetime(2026, 4, 14, 7, 0))
+
+    assert delay == 60

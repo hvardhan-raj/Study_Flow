@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -50,24 +51,81 @@ class OllamaClient:
         return str(result.get("response", "")).strip()
 
     def stream(self, prompt: str, context: AssistantContext) -> Iterable[str]:
-        answer = self.generate(prompt, context)
+        try:
+            answer = self.generate(prompt, context)
+        except (OSError, URLError, TimeoutError, json.JSONDecodeError):
+            answer = ""
         for token in answer.split():
             yield token + " "
 
     def _build_prompt(self, prompt: str, context: AssistantContext) -> str:
-        due = ", ".join(item["name"] for item in context.due_today[:5]) or "none"
-        overdue = ", ".join(item["name"] for item in context.overdue[:5]) or "none"
-        weak = ", ".join(f"{item['subject']} ({item['risk']} risk)" for item in context.weak_subjects[:5]) or "none"
-        upcoming = ", ".join(f"{item['title']} at {item['when']}" for item in context.upcoming_reminders[:5]) or "none"
-        return (
-            "You are StudyFlow's local study assistant. Give concise, practical study guidance grounded only in this data.\n"
-            f"Due today: {due}\n"
-            f"Overdue: {overdue}\n"
-            f"Weak subjects: {weak}\n"
-            f"Upcoming reminders: {upcoming}\n"
-            f"Digest: {context.digest.get('summary', '')}\n"
-            f"Student question: {prompt}\n"
+        def format_list(items, formatter):
+            return "\n".join(f"- {formatter(item)}" for item in items[:5]) or "- none"
+
+        due = format_list(context.due_today, lambda x: f"{x['name']} ({x.get('subject', 'no subject')})")
+        overdue = format_list(context.overdue, lambda x: f"{x['name']} ({x.get('subject', 'no subject')})")
+        weak = format_list(
+            context.weak_subjects,
+            lambda x: f"{x['subject']} — {x['risk']} risk, {x.get('pct', '?')}% confidence",
         )
+        upcoming = format_list(
+            context.upcoming_reminders,
+            lambda x: f"{x['title']} at {x['when']}",
+        )
+
+        return f"""
+You are StudyFlow’s intelligent study assistant.
+
+Your job is to give concise, actionable study guidance using ONLY the provided data.
+
+---------------------
+CONTEXT
+
+Due Today:
+{due}
+
+Overdue:
+{overdue}
+
+Weak Subjects:
+{weak}
+
+Upcoming Reminders:
+{upcoming}
+
+Digest:
+{context.digest.get('summary', 'none')}
+
+---------------------
+STUDENT QUESTION
+{prompt.strip()}
+
+---------------------
+INSTRUCTIONS
+
+- Use ONLY the context above (do not invent topics)
+- Prioritize in this order:
+  1. Overdue items
+  2. Due today
+  3. Weak subjects
+- Give practical study steps (not theory)
+- Keep response short (max 4 bullet points)
+
+---------------------
+OUTPUT FORMAT
+
+- Step 1: ...
+- Step 2: ...
+- Step 3: ...
+(optional Step 4)
+
+---------------------
+AVOID
+
+- Generic advice (e.g., "study regularly")
+- Long explanations
+- Repeating the question
+"""
 
 
 class LLMService:
@@ -120,7 +178,7 @@ class LLMService:
         if "exam" in prompt_lower or "track" in prompt_lower:
             return self._exam_track_answer(context)
         if "explain" in prompt_lower:
-            topic = self._best_topic_name(due_today, overdue)
+            topic = self._extracted_topic_name(prompt) or self._best_topic_name(due_today, overdue)
             return (
                 f"Start by writing what you remember about {topic}, then check gaps with your notes. "
                 "Use one worked example, one recall question, and one quick self-test before rating confidence."
@@ -201,3 +259,9 @@ class LLMService:
         if due_today:
             return str(due_today[0]["name"])
         return "the selected topic"
+
+    def _extracted_topic_name(self, prompt: str) -> str:
+        match = re.match(r"\s*explain\s+(.+?)(?:\s+with\s+a\s+quick\s+recall\s+plan\.?)?\s*$", prompt, re.IGNORECASE)
+        if not match:
+            return ""
+        return match.group(1).strip() or ""

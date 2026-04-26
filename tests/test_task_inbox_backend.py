@@ -1,6 +1,8 @@
 from datetime import timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
+from studyflow_backend.viewmodels import StudyFlowReadModel
 from studyflow_backend.service import StudyFlowBackend
 
 
@@ -56,3 +58,32 @@ def test_task_filters_and_settings_are_simplified(tmp_path) -> None:
 
     assert filter_keys == ["all", "pending", "overdue", "due_today", "upcoming", "completed"]
     assert "Account" not in section_titles
+
+
+def test_unknown_difficulty_does_not_break_task_serialization(tmp_path) -> None:
+    model = StudyFlowReadModel(
+        db_factory=lambda: None,
+        today_provider=lambda: None,
+        curriculum_filter_provider=lambda: "All",
+        curriculum_search_provider=lambda: "",
+        study_minutes_provider=lambda: [],
+    )
+    revision = SimpleNamespace(
+        id=1,
+        due_at=object(),
+        completed_at=None,
+        status="open",
+        topic=SimpleNamespace(
+            id=1,
+            name="Custom Topic",
+            subject_id=1,
+            subject=SimpleNamespace(name="General"),
+            difficulty="custom",
+            estimated_minutes=None,
+            mastery_score=0.0,
+        ),
+    )
+
+    payload = model.serialize_task(revision)
+
+    assert payload["duration_minutes"] == 30
