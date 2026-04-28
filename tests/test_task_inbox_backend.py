@@ -2,8 +2,8 @@ from datetime import timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
-from studyflow_backend.viewmodels import StudyFlowReadModel
 from studyflow_backend.service import StudyFlowBackend
+from studyflow_backend.viewmodels import StudyFlowReadModel
 
 
 def test_add_task_creates_task_and_topic(tmp_path) -> None:

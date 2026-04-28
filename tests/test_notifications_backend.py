@@ -1,7 +1,7 @@
 from datetime import timedelta
 
-from time_utils import local_now
 from studyflow_backend.service import StudyFlowBackend
+from time_utils import local_now
 
 
 def test_notifications_are_normalized_for_qml(tmp_path) -> None:

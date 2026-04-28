@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
-import logging
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, event, inspect, text

@@ -1,9 +1,9 @@
 from .base import (
+    MODEL_REGISTRY,
     AppSetting,
     Base,
     ConfidenceRating,
     DifficultyLevel,
-    MODEL_REGISTRY,
     Notification,
     PerformanceLog,
     Revision,

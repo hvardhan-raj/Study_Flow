@@ -7,7 +7,12 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .defaults import build_default_notifications, default_alert_settings, default_settings, default_study_minutes
+from .defaults import (
+    build_default_notifications,
+    default_alert_settings,
+    default_settings,
+    default_study_minutes,
+)
 
 logger = logging.getLogger(__name__)
 

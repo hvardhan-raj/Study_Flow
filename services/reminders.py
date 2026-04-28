@@ -10,7 +10,9 @@ from threading import Event, Thread
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
+
 from time_utils import local_now, naive_local_now
+
 
 @dataclass(frozen=True)
 class ReminderPreferences:

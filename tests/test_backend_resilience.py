@@ -4,8 +4,8 @@ import json
 import logging
 from datetime import timedelta
 
-from studyflow_backend.storage import load_state
 from studyflow_backend.service import StudyFlowBackend
+from studyflow_backend.storage import load_state
 
 
 def test_backend_logs_invalid_state_and_recovers(tmp_path, caplog) -> None:

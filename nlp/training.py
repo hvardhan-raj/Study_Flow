@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from models import DifficultyLevel
-from nlp.difficulty_predictor import DifficultyFeedback, NaiveBayesDifficultyModel, NLPService, tokenize
+from nlp.difficulty_predictor import (
+    DifficultyFeedback,
+    NaiveBayesDifficultyModel,
+    NLPService,
+    tokenize,
+)
 
 
 @dataclass(frozen=True)

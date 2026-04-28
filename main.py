@@ -6,8 +6,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, Qt
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQuickControls2 import QQuickStyle
 
 from backend import StudyFlowBackend
 from config.logging import configure_logging

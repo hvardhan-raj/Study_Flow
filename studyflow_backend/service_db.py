@@ -8,7 +8,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Property, QObject, QMetaObject, Qt, Signal, Slot
+from PySide6.QtCore import Property, QMetaObject, QObject, Qt, Signal, Slot
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -16,7 +16,15 @@ from sqlalchemy.orm import Session, joinedload
 from config.settings import settings
 from db.session import create_session_factory, create_sqlite_engine, init_database, session_scope
 from llm import AssistantContext, LLMService
-from models import AppSetting, ConfidenceRating, DifficultyLevel, Revision, StudySession, Subject, Topic
+from models import (
+    AppSetting,
+    ConfidenceRating,
+    DifficultyLevel,
+    Revision,
+    StudySession,
+    Subject,
+    Topic,
+)
 from nlp import NLPService, load_training_examples, train_model
 from services import (
     DesktopNotifier,
@@ -28,13 +36,13 @@ from services import (
     build_morning_summary,
     write_revision_calendar,
 )
+from time_utils import ensure_local_timezone, local_now, naive_local_now
 
 from .defaults import build_default_notifications, default_alert_settings
 from .ml_engine import LearningMLEngine
 from .models import SubjectMeta
 from .storage import load_state, save_state
 from .viewmodels import StudyFlowReadModel
-from time_utils import ensure_local_timezone, local_now, naive_local_now
 
 logger = logging.getLogger(__name__)
 

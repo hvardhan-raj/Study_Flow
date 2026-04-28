@@ -1,10 +1,11 @@
 from datetime import date, datetime
 from enum import Enum
+
 from sqlalchemy import (
+    DDL,
     CheckConstraint,
     Date,
     DateTime,
-    DDL,
     Float,
     ForeignKey,
     Index,

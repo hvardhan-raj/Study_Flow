@@ -9,6 +9,8 @@ project_root = Path(SPECPATH)
 qml_files = [
     "AIAssistantScreen.qml",
     "AppButton.qml",
+    "AppIcon.qml",
+    "AppToastHost.qml",
     "CalendarScreen.qml",
     "CurriculumMapScreen.qml",
     "DashboardScreen.qml",
@@ -19,6 +21,7 @@ qml_files = [
     "PageHeader.qml",
     "qmldir",
     "RevisionScheduleScreen.qml",
+    "RoundedDialog.qml",
     "SettingsRow.qml",
     "SettingsScreen.qml",
     "SettingsSection.qml",
@@ -31,10 +34,20 @@ qml_files = [
     "TopicTreeCard.qml",
 ]
 datas = [(str(project_root / file_name), ".") for file_name in qml_files if (project_root / file_name).exists()]
+
+
+def collect_tree(source: Path, prefix: str) -> list[tuple[str, str]]:
+    return [
+        (str(path), str(Path(prefix) / path.relative_to(source).parent))
+        for path in source.rglob("*")
+        if path.is_file()
+    ]
+
+
 if (project_root / "assets").exists():
-    datas += Tree(str(project_root / "assets"), prefix="assets")
+    datas += collect_tree(project_root / "assets", "assets")
 if (project_root / "nlp" / "data").exists():
-    datas += Tree(str(project_root / "nlp" / "data"), prefix="nlp/data")
+    datas += collect_tree(project_root / "nlp" / "data", "nlp/data")
 
 hiddenimports = []
 for package_name in ("studyflow_backend", "services", "nlp", "llm", "ui", "config", "db", "models"):

@@ -297,7 +297,7 @@ class LearningMLEngine:
             classes = getattr(self._model, "classes_", [])
             expected_target = sum(
                 CLASS_TO_RISK.get(int(label), 0.5) * float(probability)
-                for label, probability in zip(classes, probabilities)
+                for label, probability in zip(classes, probabilities, strict=False)
             )
             return max(0.0, min(1.0, float(expected_target)))
         return self._heuristic_forgetting_risk(feature)

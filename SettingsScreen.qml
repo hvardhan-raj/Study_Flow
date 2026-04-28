@@ -6,6 +6,8 @@ Rectangle {
     id: root
     color: "#F0F4F9"
 
+    readonly property bool compactLayout: width < 1180
+    readonly property bool narrowLayout: width < 860
     readonly property var scheduleSettings: backend.scheduleSettings || ({ daily_time_minutes: 120, preferred_time: "18:00" })
     readonly property var notificationRows: backend.settingsColumns.length > 1 ? backend.settingsColumns[1].rows : []
     readonly property var timeOptions: [
@@ -48,427 +50,458 @@ Rectangle {
             ]
         }
 
-        ColumnLayout {
+        ScrollView {
+            id: settingsScroll
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.leftMargin: 24
-            Layout.rightMargin: 24
+            Layout.leftMargin: root.narrowLayout ? 16 : 24
+            Layout.rightMargin: root.narrowLayout ? 16 : 24
             Layout.topMargin: 22
             Layout.bottomMargin: 24
-            spacing: 16
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: 92
-                radius: 18
-                color: "#FFFFFF"
-                border.color: "#E2E8F0"
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: 18
-                    spacing: 14
-
-                    Rectangle {
-                        width: 42
-                        height: 42
-                        radius: 14
-                        color: "#EFF6FF"
-
-                        AppIcon {
-                            anchors.centerIn: parent
-                            name: "calendar"
-                            size: 18
-                            tint: "#2563EB"
-                        }
-                    }
-
-                    ColumnLayout {
-                        spacing: 4
-                        Text {
-                            text: "Daily planning controls"
-                            font.pixelSize: 15
-                            font.bold: true
-                            font.family: "Segoe UI"
-                            color: "#0F172A"
-                        }
-                        Text {
-                            text: "Set your daily study cap and preferred start time. Changes are applied locally and rebalance the revision schedule."
-                            font.pixelSize: 11
-                            font.family: "Segoe UI"
-                            color: "#64748B"
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    TagPill {
-                        tagText: String(root.scheduleSettings.daily_time_minutes || 120) + " min / day"
-                        tagColor: "#3B82F6"
-                    }
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+            ColumnLayout {
+                width: Math.max(settingsScroll.availableWidth, 320)
                 spacing: 16
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
                     radius: 18
                     color: "#FFFFFF"
                     border.color: "#E2E8F0"
+                    implicitHeight: headerInfo.implicitHeight + 36
 
                     ColumnLayout {
+                        id: headerInfo
                         anchors.fill: parent
-                        anchors.margins: 20
-                        spacing: 18
+                        anchors.margins: 18
+                        spacing: 14
 
-                        ColumnLayout {
-                            spacing: 4
-                            Text {
-                                text: "Study Planning"
-                                font.pixelSize: 16
-                                font.bold: true
-                                font.family: "Segoe UI"
-                                color: "#0F172A"
-                            }
-                            Text {
-                                text: "Control how much work the scheduler can place in a day."
-                                font.pixelSize: 11
-                                font.family: "Segoe UI"
-                                color: "#94A3B8"
-                            }
-                        }
-
-                        Rectangle {
+                        RowLayout {
                             Layout.fillWidth: true
-                            radius: 16
-                            color: "#F8FAFC"
-                            border.color: "#E2E8F0"
-                            implicitHeight: dailyBlock.implicitHeight + 24
+                            spacing: 14
+
+                            Rectangle {
+                                width: 42
+                                height: 42
+                                radius: 14
+                                color: "#EFF6FF"
+
+                                AppIcon {
+                                    anchors.centerIn: parent
+                                    name: "calendar"
+                                    size: 18
+                                    tint: "#2563EB"
+                                }
+                            }
 
                             ColumnLayout {
-                                id: dailyBlock
-                                anchors.fill: parent
-                                anchors.margins: 16
-                                spacing: 8
+                                Layout.fillWidth: true
+                                spacing: 4
 
                                 Text {
-                                    text: "Daily Study Limit"
-                                    font.pixelSize: 12
+                                    text: "Daily planning controls"
+                                    font.pixelSize: 15
                                     font.bold: true
                                     font.family: "Segoe UI"
                                     color: "#0F172A"
                                 }
 
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 10
-
-                                    TextField {
-                                        id: dailyLimitField
-                                        Layout.preferredWidth: 120
-                                        text: String(root.scheduleSettings.daily_time_minutes || 120)
-                                        placeholderText: "120"
-                                        selectByMouse: true
-                                        validator: IntValidator { bottom: 15; top: 600 }
-                                        onEditingFinished: backend.updateScheduleSetting("daily_time_minutes", text)
-                                    }
-
-                                    Text {
-                                        text: "minutes per day"
-                                        font.pixelSize: 11
-                                        font.family: "Segoe UI"
-                                        color: "#64748B"
-                                    }
-
-                                    Item { Layout.fillWidth: true }
-                                }
-
                                 Text {
-                                    text: "When the daily cap is reached, remaining revisions are pushed forward automatically."
-                                    wrapMode: Text.WordWrap
-                                    font.pixelSize: 10
+                                    text: "Set your daily study cap and preferred start time. Changes are applied locally and rebalance the revision schedule."
+                                    font.pixelSize: 11
                                     font.family: "Segoe UI"
                                     color: "#64748B"
+                                    wrapMode: Text.WordWrap
                                     Layout.fillWidth: true
                                 }
                             }
                         }
 
-                        Rectangle {
-                            Layout.fillWidth: true
-                            radius: 16
-                            color: "#F8FAFC"
-                            border.color: "#E2E8F0"
-                            implicitHeight: timeBlock.implicitHeight + 24
-
-                            ColumnLayout {
-                                id: timeBlock
-                                anchors.fill: parent
-                                anchors.margins: 16
-                                spacing: 8
-
-                                Text {
-                                    text: "Preferred Start Time"
-                                    font.pixelSize: 12
-                                    font.bold: true
-                                    font.family: "Segoe UI"
-                                    color: "#0F172A"
-                                }
-
-                                ComboBox {
-                                    id: startTimeBox
-                                    Layout.fillWidth: true
-                                    model: root.timeOptions
-                                    currentIndex: root.preferredTimeIndex()
-                                    onActivated: backend.updateScheduleSetting("preferred_time", currentText)
-                                }
-
-                                Text {
-                                    text: "Study sessions are allocated from this time with a 5-minute gap between revisions."
-                                    wrapMode: Text.WordWrap
-                                    font.pixelSize: 10
-                                    font.family: "Segoe UI"
-                                    color: "#64748B"
-                                    Layout.fillWidth: true
-                                }
-                            }
+                        TagPill {
+                            Layout.alignment: root.compactLayout ? Qt.AlignLeft : Qt.AlignRight
+                            tagText: String(root.scheduleSettings.daily_time_minutes || 120) + " min / day"
+                            tagColor: "#3B82F6"
                         }
-
-                        Item { Layout.fillHeight: true }
                     }
                 }
 
-                Rectangle {
+                GridLayout {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    radius: 18
-                    color: "#FFFFFF"
-                    border.color: "#E2E8F0"
+                    columns: root.compactLayout ? 1 : 2
+                    columnSpacing: 16
+                    rowSpacing: 16
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 20
-                        spacing: 18
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignTop
+                        radius: 18
+                        color: "#FFFFFF"
+                        border.color: "#E2E8F0"
+                        implicitHeight: planningColumn.implicitHeight + 40
 
                         ColumnLayout {
-                            spacing: 4
-                            Text {
-                                text: "Automation & Data"
-                                font.pixelSize: 16
-                                font.bold: true
-                                font.family: "Segoe UI"
-                                color: "#0F172A"
-                            }
-                            Text {
-                                text: "Keep scheduling automatic and manage local history."
-                                font.pixelSize: 11
-                                font.family: "Segoe UI"
-                                color: "#94A3B8"
-                            }
-                        }
+                            id: planningColumn
+                            anchors.fill: parent
+                            anchors.margins: 20
+                            spacing: 18
 
-                        Repeater {
-                            model: root.notificationRows
-                            delegate: Rectangle {
+                            ColumnLayout {
+                                spacing: 4
+
+                                Text {
+                                    text: "Study Planning"
+                                    font.pixelSize: 16
+                                    font.bold: true
+                                    font.family: "Segoe UI"
+                                    color: "#0F172A"
+                                }
+
+                                Text {
+                                    text: "Control how much work the scheduler can place in a day."
+                                    font.pixelSize: 11
+                                    font.family: "Segoe UI"
+                                    color: "#94A3B8"
+                                }
+                            }
+
+                            Rectangle {
                                 Layout.fillWidth: true
                                 radius: 16
                                 color: "#F8FAFC"
                                 border.color: "#E2E8F0"
-                                implicitHeight: 72
+                                implicitHeight: dailyBlock.implicitHeight + 24
 
-                                RowLayout {
+                                ColumnLayout {
+                                    id: dailyBlock
                                     anchors.fill: parent
                                     anchors.margins: 16
-                                    spacing: 12
+                                    spacing: 8
+
+                                    Text {
+                                        text: "Daily Study Limit"
+                                        font.pixelSize: 12
+                                        font.bold: true
+                                        font.family: "Segoe UI"
+                                        color: "#0F172A"
+                                    }
 
                                     ColumnLayout {
                                         Layout.fillWidth: true
-                                        spacing: 3
+                                        spacing: 8
 
-                                        Text {
-                                            text: modelData.label
-                                            font.pixelSize: 12
-                                            font.bold: true
-                                            font.family: "Segoe UI"
-                                            color: "#0F172A"
+                                        TextField {
+                                            id: dailyLimitField
+                                            Layout.fillWidth: root.narrowLayout
+                                            Layout.preferredWidth: root.narrowLayout ? -1 : 120
+                                            text: String(root.scheduleSettings.daily_time_minutes || 120)
+                                            placeholderText: "120"
+                                            selectByMouse: true
+                                            validator: IntValidator { bottom: 15; top: 600 }
+                                            onEditingFinished: backend.updateScheduleSetting("daily_time_minutes", text)
                                         }
 
                                         Text {
-                                            text: "Automatically rebalance revision dates after changes."
-                                            font.pixelSize: 10
+                                            text: "minutes per day"
+                                            font.pixelSize: 11
                                             font.family: "Segoe UI"
                                             color: "#64748B"
-                                            wrapMode: Text.WordWrap
-                                            Layout.fillWidth: true
                                         }
                                     }
 
-                                    Rectangle {
-                                        width: 44
-                                        height: 24
-                                        radius: 12
-                                        color: modelData.toggleOn ? "#3B82F6" : "#CBD5E1"
-                                        Behavior on color { ColorAnimation { duration: 160 } }
+                                    Text {
+                                        text: "When the daily cap is reached, remaining revisions are pushed forward automatically."
+                                        wrapMode: Text.WordWrap
+                                        font.pixelSize: 10
+                                        font.family: "Segoe UI"
+                                        color: "#64748B"
+                                        Layout.fillWidth: true
+                                    }
+                                }
+                            }
 
-                                        Rectangle {
-                                            width: 20
-                                            height: 20
-                                            radius: 10
-                                            color: "#FFFFFF"
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            x: modelData.toggleOn ? parent.width - width - 2 : 2
-                                            Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-                                        }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                radius: 16
+                                color: "#F8FAFC"
+                                border.color: "#E2E8F0"
+                                implicitHeight: timeBlock.implicitHeight + 24
 
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: backend.toggleSetting(modelData.key || "")
-                                        }
+                                ColumnLayout {
+                                    id: timeBlock
+                                    anchors.fill: parent
+                                    anchors.margins: 16
+                                    spacing: 8
+
+                                    Text {
+                                        text: "Preferred Start Time"
+                                        font.pixelSize: 12
+                                        font.bold: true
+                                        font.family: "Segoe UI"
+                                        color: "#0F172A"
+                                    }
+
+                                    ComboBox {
+                                        id: startTimeBox
+                                        Layout.fillWidth: true
+                                        model: root.timeOptions
+                                        currentIndex: root.preferredTimeIndex()
+                                        onActivated: backend.updateScheduleSetting("preferred_time", currentText)
+                                    }
+
+                                    Text {
+                                        text: "Study sessions are allocated from this time with a 5-minute gap between revisions."
+                                        wrapMode: Text.WordWrap
+                                        font.pixelSize: 10
+                                        font.family: "Segoe UI"
+                                        color: "#64748B"
+                                        Layout.fillWidth: true
                                     }
                                 }
                             }
                         }
+                    }
 
-                        Rectangle {
-                            Layout.fillWidth: true
-                            radius: 16
-                            color: "#FFFFFF"
-                            border.color: "#E2E8F0"
-                            implicitHeight: alertBlock.implicitHeight + 24
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignTop
+                        radius: 18
+                        color: "#FFFFFF"
+                        border.color: "#E2E8F0"
+                        implicitHeight: automationColumn.implicitHeight + 40
+
+                        ColumnLayout {
+                            id: automationColumn
+                            anchors.fill: parent
+                            anchors.margins: 20
+                            spacing: 18
 
                             ColumnLayout {
-                                id: alertBlock
-                                anchors.fill: parent
-                                anchors.margins: 16
-                                spacing: 10
+                                spacing: 4
 
                                 Text {
-                                    text: "Alert Settings"
-                                    font.pixelSize: 12
+                                    text: "Automation & Data"
+                                    font.pixelSize: 16
                                     font.bold: true
                                     font.family: "Segoe UI"
                                     color: "#0F172A"
                                 }
 
-                                Repeater {
-                                    model: backend.alertSettings
-                                    delegate: Rectangle {
-                                        Layout.fillWidth: true
-                                        radius: 14
-                                        color: "#F8FAFC"
-                                        border.color: "#E2E8F0"
-                                        implicitHeight: settingCol.implicitHeight + 22
+                                Text {
+                                    text: "Keep scheduling automatic and manage local history."
+                                    font.pixelSize: 11
+                                    font.family: "Segoe UI"
+                                    color: "#94A3B8"
+                                }
+                            }
+
+                            Repeater {
+                                model: root.notificationRows
+
+                                delegate: Rectangle {
+                                    Layout.fillWidth: true
+                                    radius: 16
+                                    color: "#F8FAFC"
+                                    border.color: "#E2E8F0"
+                                    implicitHeight: toggleContent.implicitHeight + 32
+
+                                    ColumnLayout {
+                                        id: toggleContent
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 12
 
                                         ColumnLayout {
-                                            id: settingCol
-                                            anchors.fill: parent
-                                            anchors.margins: 12
-                                            spacing: 8
+                                            Layout.fillWidth: true
+                                            spacing: 3
 
-                                            RowLayout {
+                                            Text {
+                                                text: modelData.label
+                                                font.pixelSize: 12
+                                                font.bold: true
+                                                font.family: "Segoe UI"
+                                                color: "#0F172A"
                                                 Layout.fillWidth: true
-                                                spacing: 10
-
-                                                Rectangle { width: 4; height: 22; radius: 2; color: modelData.color }
-
-                                                Text {
-                                                    text: modelData.label
-                                                    font.pixelSize: 11
-                                                    font.bold: true
-                                                    font.family: "Segoe UI"
-                                                    color: "#334155"
-                                                    Layout.fillWidth: true
-                                                    wrapMode: Text.WordWrap
-                                                }
-
-                                                Rectangle {
-                                                    width: 40
-                                                    height: 22
-                                                    radius: 11
-                                                    color: modelData.on ? modelData.color : "#D1D9E6"
-                                                    Behavior on color { ColorAnimation { duration: 160 } }
-
-                                                    Rectangle {
-                                                        width: 18
-                                                        height: 18
-                                                        radius: 9
-                                                        color: "#FFFFFF"
-                                                        anchors.verticalCenter: parent.verticalCenter
-                                                        x: modelData.on ? parent.width - width - 2 : 2
-                                                        Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-                                                    }
-
-                                                    MouseArea {
-                                                        anchors.fill: parent
-                                                        cursorShape: Qt.PointingHandCursor
-                                                        onClicked: backend.toggleAlertSetting(modelData.key)
-                                                    }
-                                                }
+                                                wrapMode: Text.WordWrap
                                             }
 
                                             Text {
-                                                text: modelData.description
+                                                text: "Automatically rebalance revision dates after changes."
                                                 font.pixelSize: 10
                                                 font.family: "Segoe UI"
                                                 color: "#64748B"
-                                                Layout.fillWidth: true
                                                 wrapMode: Text.WordWrap
+                                                Layout.fillWidth: true
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            Layout.alignment: Qt.AlignLeft
+                                            width: 44
+                                            height: 24
+                                            radius: 12
+                                            color: modelData.toggleOn ? "#3B82F6" : "#CBD5E1"
+                                            Behavior on color { ColorAnimation { duration: 160 } }
+
+                                            Rectangle {
+                                                width: 20
+                                                height: 20
+                                                radius: 10
+                                                color: "#FFFFFF"
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                x: modelData.toggleOn ? parent.width - width - 2 : 2
+                                                Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            }
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: backend.toggleSetting(modelData.key || "")
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        Rectangle {
-                            Layout.fillWidth: true
-                            radius: 16
-                            color: "#FEF2F2"
-                            border.color: "#FECACA"
-                            implicitHeight: dangerBlock.implicitHeight + 24
+                            Rectangle {
+                                Layout.fillWidth: true
+                                radius: 16
+                                color: "#FFFFFF"
+                                border.color: "#E2E8F0"
+                                implicitHeight: alertBlock.implicitHeight + 24
 
-                            ColumnLayout {
-                                id: dangerBlock
-                                anchors.fill: parent
-                                anchors.margins: 16
-                                spacing: 8
+                                ColumnLayout {
+                                    id: alertBlock
+                                    anchors.fill: parent
+                                    anchors.margins: 16
+                                    spacing: 10
 
-                                Text {
-                                    text: "Clear Local History"
-                                    font.pixelSize: 12
-                                    font.bold: true
-                                    font.family: "Segoe UI"
-                                    color: "#991B1B"
+                                    Text {
+                                        text: "Alert Settings"
+                                        font.pixelSize: 12
+                                        font.bold: true
+                                        font.family: "Segoe UI"
+                                        color: "#0F172A"
+                                    }
+
+                                    Repeater {
+                                        model: backend.alertSettings
+
+                                        delegate: Rectangle {
+                                            Layout.fillWidth: true
+                                            radius: 14
+                                            color: "#F8FAFC"
+                                            border.color: "#E2E8F0"
+                                            implicitHeight: settingCol.implicitHeight + 22
+
+                                            ColumnLayout {
+                                                id: settingCol
+                                                anchors.fill: parent
+                                                anchors.margins: 12
+                                                spacing: 8
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 8
+
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        spacing: 10
+
+                                                        Rectangle { width: 4; height: 22; radius: 2; color: modelData.color }
+
+                                                        Text {
+                                                            text: modelData.label
+                                                            font.pixelSize: 11
+                                                            font.bold: true
+                                                            font.family: "Segoe UI"
+                                                            color: "#334155"
+                                                            Layout.fillWidth: true
+                                                            wrapMode: Text.WordWrap
+                                                        }
+                                                    }
+
+                                                    Rectangle {
+                                                        Layout.alignment: Qt.AlignLeft
+                                                        width: 40
+                                                        height: 22
+                                                        radius: 11
+                                                        color: modelData.on ? modelData.color : "#D1D9E6"
+                                                        Behavior on color { ColorAnimation { duration: 160 } }
+
+                                                        Rectangle {
+                                                            width: 18
+                                                            height: 18
+                                                            radius: 9
+                                                            color: "#FFFFFF"
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                            x: modelData.on ? parent.width - width - 2 : 2
+                                                            Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                        }
+
+                                                        MouseArea {
+                                                            anchors.fill: parent
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: backend.toggleAlertSetting(modelData.key)
+                                                        }
+                                                    }
+                                                }
+
+                                                Text {
+                                                    text: modelData.description
+                                                    font.pixelSize: 10
+                                                    font.family: "Segoe UI"
+                                                    color: "#64748B"
+                                                    Layout.fillWidth: true
+                                                    wrapMode: Text.WordWrap
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
+                            }
 
-                                Text {
-                                    text: "Removes stored study minutes and recent notifications from local state."
-                                    font.pixelSize: 10
-                                    font.family: "Segoe UI"
-                                    color: "#7F1D1D"
-                                    wrapMode: Text.WordWrap
-                                    Layout.fillWidth: true
-                                }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                radius: 16
+                                color: "#FEF2F2"
+                                border.color: "#FECACA"
+                                implicitHeight: dangerBlock.implicitHeight + 24
 
-                                AppButton {
-                                    label: "Clear History"
-                                    iconName: "close"
-                                    variant: "danger"
-                                    small: true
-                                    onClicked: backend.clearHistory()
+                                ColumnLayout {
+                                    id: dangerBlock
+                                    anchors.fill: parent
+                                    anchors.margins: 16
+                                    spacing: 8
+
+                                    Text {
+                                        text: "Clear Local History"
+                                        font.pixelSize: 12
+                                        font.bold: true
+                                        font.family: "Segoe UI"
+                                        color: "#991B1B"
+                                    }
+
+                                    Text {
+                                        text: "Removes stored study minutes and recent notifications from local state."
+                                        font.pixelSize: 10
+                                        font.family: "Segoe UI"
+                                        color: "#7F1D1D"
+                                        wrapMode: Text.WordWrap
+                                        Layout.fillWidth: true
+                                    }
+
+                                    AppButton {
+                                        label: "Clear History"
+                                        iconName: "close"
+                                        variant: "danger"
+                                        small: true
+                                        onClicked: backend.clearHistory()
+                                    }
                                 }
                             }
                         }
-
-                        Item { Layout.fillHeight: true }
                     }
                 }
             }
