@@ -387,7 +387,7 @@ Rectangle {
 
     RoundedDialog {
         id: importDialog
-        width: 480
+        width: 520
         title: "Bulk Import Topics"
         standardButtons: Dialog.Ok | Dialog.Cancel
         onAccepted: backend.importTopics(importText.text, importSubjectBox.currentValue, csvModeCheck.checked)
@@ -406,14 +406,26 @@ Rectangle {
 
             CheckBox {
                 id: csvModeCheck
-                text: "Treat input as CSV (first column)"
+                text: "Treat input as CSV rows"
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: csvModeCheck.checked
+                    ? "CSV format: topic or subject,topic,difficulty. Header rows like subject,topic,difficulty are also supported. Missing subjects will be created automatically."
+                    : "Line format: one topic per line, or Subject | Topic | Difficulty."
+                wrapMode: Text.WordWrap
+                font.pixelSize: 10
+                color: "#64748B"
             }
 
             TextArea {
                 id: importText
                 Layout.fillWidth: true
                 Layout.preferredHeight: 180
-                placeholderText: "Paste one topic per line, or CSV rows"
+                placeholderText: csvModeCheck.checked
+                    ? "subject,topic,difficulty\nPhysics,Wave Optics,Hard\nChemistry,Hydrocarbons,Medium"
+                    : "Physics | Wave Optics | Hard\nChemistry | Hydrocarbons | Medium\nStandalone Topic"
                 wrapMode: TextEdit.WordWrap
             }
         }

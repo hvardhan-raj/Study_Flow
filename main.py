@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, Qt
@@ -14,6 +15,13 @@ from config.logging import configure_logging
 from config.settings import settings
 from services import ReminderScheduler
 from ui import NavigationController
+
+
+@dataclass
+class RuntimeReferences:
+    backend: StudyFlowBackend
+    navigation: NavigationController
+    reminder_scheduler: ReminderScheduler
 
 
 def resolve_runtime_dir() -> Path:
@@ -55,11 +63,11 @@ def main() -> int:
     app.aboutToQuit.connect(reminder_scheduler.stop)
     app.aboutToQuit.connect(backend.shutdown)
     # Keep Python-owned QObjects strongly referenced for the full Qt app lifetime.
-    app._backend = backend
-    app._navigation = navigation
-    app._reminder_scheduler = reminder_scheduler
-    engine._backend = backend
-    engine._navigation = navigation
+    runtime_refs = RuntimeReferences(
+        backend=backend,
+        navigation=navigation,
+        reminder_scheduler=reminder_scheduler,
+    )
     engine.rootContext().setContextProperty("backend", backend)
     engine.rootContext().setContextProperty("navigation", navigation)
     engine.addImportPath(str(runtime_dir))

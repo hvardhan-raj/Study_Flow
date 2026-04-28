@@ -4,13 +4,17 @@ from llm import AssistantContext, LLMService
 class FakeClient:
     model = "fake-model"
 
-    def __init__(self, available: bool, response: str = "") -> None:
+    def __init__(self, available: bool, response: str = "", has_model: bool | None = None) -> None:
         self.available = available
         self.response = response
+        self._has_model = available if has_model is None else has_model
         self.prompts: list[str] = []
 
     def is_available(self) -> bool:
         return self.available
+
+    def has_model(self) -> bool:
+        return self._has_model
 
     def generate(self, prompt: str, context: AssistantContext) -> str:
         self.prompts.append(prompt)
@@ -40,6 +44,15 @@ def test_llm_service_uses_ollama_when_available() -> None:
     response = service.answer("Help me", context)
 
     assert response == {"text": "Use active recall first.", "source": "ollama"}
+
+
+def test_llm_status_reports_missing_model_when_ollama_is_running_without_target_model() -> None:
+    service = LLMService(client=FakeClient(True, has_model=False))
+
+    status = service.status()
+
+    assert status["available"] is False
+    assert "not installed" in status["message"]
 
 
 def test_llm_status_reports_offline_setup_guidance() -> None:
@@ -73,3 +86,4 @@ def test_llm_service_handles_all_canned_assistant_prompts_offline() -> None:
         response = service.answer(prompt, context)
         assert response["source"] == "offline"
         assert expected in response["text"]
+        assert "-" in response["text"]

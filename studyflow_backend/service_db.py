@@ -98,6 +98,7 @@ class StudyFlowBackend(QObject):
         super().__init__()
         self._store_path = store_path or Path(__file__).resolve().parent.parent / "studyflow_data.json"
         self._database_path = Path(database_path) if database_path is not None else self._resolve_database_path(self._store_path)
+        self._seed_demo_data = self._should_seed_demo_data(self._store_path)
         self._engine = create_sqlite_engine(database_path=self._database_path)
         self._session_factory = create_session_factory(self._engine)
         init_database(engine_override=self._engine, database_path=self._database_path)
@@ -164,9 +165,12 @@ class StudyFlowBackend(QObject):
             self._scheduler(db).rebalance_schedule()
 
     def _resolve_database_path(self, store_path: Path) -> Path:
-        if store_path.name.endswith("_state.json"):
+        if store_path.suffix.lower() == ".json":
             return store_path.with_suffix(".sqlite3")
         return settings.database_path
+
+    def _should_seed_demo_data(self, store_path: Path) -> bool:
+        return store_path.name.endswith("_state.json")
 
     def _ensure_database_ready(self) -> None:
         with self._db() as db:
@@ -175,7 +179,8 @@ class StudyFlowBackend(QObject):
                 for topic in leaked_topics:
                     db.delete(topic)
                 logger.warning("Removed %s leaked dashboard test topic(s) from %s", len(leaked_topics), self._database_path)
-            seed_defaults(db)
+            if self._seed_demo_data:
+                seed_defaults(db)
 
     def _load_json_state(self) -> None:
         try:
@@ -706,13 +711,14 @@ class StudyFlowBackend(QObject):
             )
         return created
 
-    def _assistant_context(self) -> AssistantContext:
+    def _assistant_context(self, recent_messages: list[dict[str, Any]] | None = None) -> AssistantContext:
         return AssistantContext(
             due_today=self._tasks_for_bucket("due_today"),
             overdue=self._tasks_for_bucket("overdue"),
             weak_subjects=self.analyticsSubjectRows,
             upcoming_reminders=self.upcomingReminders,
             digest=self.todayDigest,
+            recent_messages=recent_messages or [],
         )
     @Property("QVariantList", notify=stateChanged)
     def dashboardStats(self) -> list[dict[str, Any]]:
@@ -1435,27 +1441,131 @@ class StudyFlowBackend(QObject):
         prediction = self._nlp_service.predict_difficulty(topic_name.strip())
         return {"difficulty": prediction.difficulty.value.capitalize() if prediction.difficulty else "", "confidence": round(prediction.confidence, 2), "source": prediction.source}
 
+    def _looks_like_import_header(self, row: list[str]) -> bool:
+        normalized = {cell.strip().lower() for cell in row if cell and cell.strip()}
+        return bool(normalized) and "topic" in normalized and ("subject" in normalized or "difficulty" in normalized)
+
+    def _normalize_import_difficulty(self, topic_name: str, raw_difficulty: str) -> DifficultyLevel:
+        value = (raw_difficulty or "").strip().lower()
+        aliases = {
+            "easy": DifficultyLevel.EASY,
+            "e": DifficultyLevel.EASY,
+            "medium": DifficultyLevel.MEDIUM,
+            "med": DifficultyLevel.MEDIUM,
+            "m": DifficultyLevel.MEDIUM,
+            "hard": DifficultyLevel.HARD,
+            "h": DifficultyLevel.HARD,
+        }
+        if value in aliases:
+            return aliases[value]
+        suggestion = self.suggestTopicDifficulty(topic_name)
+        return DifficultyLevel((suggestion["difficulty"] or "Medium").lower())
+
+    def _parse_import_entries(self, raw_text: str, default_subject_id: str, csv_mode: bool) -> list[dict[str, str]]:
+        entries: list[dict[str, str]] = []
+        fallback_subject = default_subject_id.strip()
+        if csv_mode:
+            rows = list(csv.reader(StringIO(raw_text)))
+            non_empty_rows = [[cell.strip() for cell in row] for row in rows if any(cell.strip() for cell in row)]
+            if not non_empty_rows:
+                return entries
+            if self._looks_like_import_header(non_empty_rows[0]):
+                header = [cell.strip().lower() for cell in non_empty_rows[0]]
+                for row in non_empty_rows[1:]:
+                    padded = row + [""] * (len(header) - len(row))
+                    record = dict(zip(header, padded, strict=False))
+                    topic_name = record.get("topic", "").strip()
+                    if not topic_name:
+                        continue
+                    entries.append(
+                        {
+                            "subject": record.get("subject", "").strip() or fallback_subject,
+                            "topic": topic_name,
+                            "difficulty": record.get("difficulty", "").strip(),
+                        }
+                    )
+                return entries
+            for row in non_empty_rows:
+                if len(row) == 1:
+                    entries.append({"subject": fallback_subject, "topic": row[0], "difficulty": ""})
+                else:
+                    entries.append(
+                        {
+                            "subject": row[0].strip() or fallback_subject,
+                            "topic": row[1].strip() if len(row) > 1 else "",
+                            "difficulty": row[2].strip() if len(row) > 2 else "",
+                        }
+                    )
+            return [entry for entry in entries if entry["topic"]]
+
+        for line in raw_text.splitlines():
+            clean = line.strip()
+            if not clean:
+                continue
+            parts = [part.strip() for part in clean.split("|")]
+            if len(parts) >= 3:
+                entries.append({"subject": parts[0] or fallback_subject, "topic": parts[1], "difficulty": parts[2]})
+            elif len(parts) == 2:
+                entries.append({"subject": parts[0] or fallback_subject, "topic": parts[1], "difficulty": ""})
+            else:
+                entries.append({"subject": fallback_subject, "topic": clean, "difficulty": ""})
+        return [entry for entry in entries if entry["topic"]]
+
+    def _resolve_import_subject_id(self, db: Session, raw_subject: str) -> tuple[str, bool]:
+        clean_subject = raw_subject.strip()
+        if not clean_subject:
+            raise ValueError("Each imported topic needs a subject when no default subject is selected.")
+        subject_service = SubjectService(db)
+        try:
+            subject = subject_service.get_subject(clean_subject)
+        except ValueError:
+            subject = db.scalars(select(Subject).where(Subject.name == clean_subject)).first()
+        if subject is not None:
+            return str(subject.id), False
+        created = subject_service.create_subject(name=clean_subject, color_tag=self._generate_subject_color())
+        return str(created.id), True
+
     @Slot(str, str, bool)
     def importTopics(self, raw_text: str, subject_id: str, csv_mode: bool) -> None:
-        entries: list[str] = []
-        if csv_mode:
-            for row in csv.reader(StringIO(raw_text)):
-                if row and row[0].strip():
-                    entries.append(row[0].strip())
-        else:
-            entries = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        entries = self._parse_import_entries(raw_text, subject_id, csv_mode)
+        if not entries:
+            self._show_toast("error", "Import Failed", "Add at least one topic row to import.")
+            return
+        created = 0
+        skipped = 0
+        created_subjects: set[str] = set()
         with self._db() as db:
             service = TopicService(db, scheduler=self._scheduler(db))
             for entry in entries:
-                suggestion = self.suggestTopicDifficulty(entry)
-                difficulty = DifficultyLevel((suggestion["difficulty"] or "Medium").lower())
                 try:
+                    resolved_subject_id, subject_created = self._resolve_import_subject_id(db, entry["subject"])
+                    if subject_created:
+                        created_subjects.add(entry["subject"].strip())
+                    difficulty = self._normalize_import_difficulty(entry["topic"], entry["difficulty"])
                     with db.begin_nested():
-                        service.create_topic(subject_id=subject_id, name=entry, difficulty=difficulty)
+                        service.create_topic(subject_id=resolved_subject_id, name=entry["topic"], difficulty=difficulty)
                         db.flush()
+                    created += 1
                 except IntegrityError:
-                    logger.warning("Skipping duplicate or invalid imported topic", extra={"topic": entry, "subject_id": subject_id})
+                    skipped += 1
+                    logger.warning("Skipping duplicate or invalid imported topic", extra={"topic": entry["topic"], "subject_id": entry["subject"]})
+                except ValueError:
+                    skipped += 1
+                    logger.warning(
+                        "Skipping imported topic due to invalid subject or difficulty",
+                        extra={"topic": entry["topic"], "subject_id": entry["subject"], "difficulty": entry["difficulty"]},
+                    )
+        if created == 0:
+            self._show_toast("error", "Import Failed", "No topics were imported. Check subjects, duplicates, or row format.")
+            return
+        self._request_intelligence_refresh(train=True)
+        subject_summary = ""
+        if created_subjects:
+            subject_summary = f" Added {len(created_subjects)} new subject{'s' if len(created_subjects) != 1 else ''}."
+        suffix = f" Skipped {skipped} duplicate or invalid row{'s' if skipped != 1 else ''}." if skipped else ""
+        self._show_toast("success", "Import Complete", f"Imported {created} topic{'s' if created != 1 else ''}.{subject_summary}{suffix}")
         self._emit()
+
     @Slot(str)
     def setTaskFilter(self, filter: str) -> None:
         self._task_filter = filter
@@ -1612,7 +1722,8 @@ class StudyFlowBackend(QObject):
             return {"text": "", "source": "empty"}
         user_message = self._normalize_assistant_message({"role": "user", "text": clean, "source": "user"})
         self._assistant_messages.append(user_message)
-        response = self._llm_service.answer(clean, self._assistant_context())
+        response = self._llm_service.answer(clean, self._assistant_context(recent_messages=self._assistant_messages[-6:]))
+        self._assistant_status = self._llm_service.status()
         assistant_message = self._normalize_assistant_message({"role": "assistant", "text": response["text"], "source": response["source"]})
         self._assistant_messages.append(assistant_message)
         self._assistant_messages = self._assistant_messages[-40:]
