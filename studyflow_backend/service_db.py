@@ -1091,7 +1091,10 @@ class StudyFlowBackend(QObject):
     @Slot(str, str)
     def updateScheduleSetting(self, key: str, value: str) -> None:
         if key == "daily_time_minutes":
-            normalized = str(max(15, int(value)))
+            try:
+                normalized = str(max(15, int(value)))
+            except (TypeError, ValueError):
+                return
         elif key == "preferred_time":
             time.fromisoformat(value)
             normalized = value

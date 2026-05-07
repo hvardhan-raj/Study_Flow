@@ -248,7 +248,6 @@ Rectangle {
         fileMode: FileDialog.SaveFile
         defaultSuffix: "ics"
         nameFilters: ["iCalendar files (*.ics)"]
-        selectedFile: "studyflow_revisions.ics"
         onAccepted: backend.exportCalendar(selectedFile)
     }
 }

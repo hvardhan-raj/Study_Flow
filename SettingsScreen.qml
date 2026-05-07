@@ -176,8 +176,11 @@ Rectangle {
                                         text: String(root.scheduleSettings.daily_time_minutes || 120)
                                         placeholderText: "120"
                                         selectByMouse: true
+                                        inputMethodHints: Qt.ImhDigitsOnly
                                         validator: IntValidator { bottom: 15; top: 600 }
-                                        onEditingFinished: backend.updateScheduleSetting("daily_time_minutes", text)
+                                        onActiveFocusChanged: if (activeFocus) selectAll()
+                                        onAccepted: if (acceptableInput) backend.updateScheduleSetting("daily_time_minutes", text)
+                                        onEditingFinished: if (acceptableInput) backend.updateScheduleSetting("daily_time_minutes", text)
                                     }
 
                                     Text {
