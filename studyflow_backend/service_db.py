@@ -161,7 +161,11 @@ class StudyFlowBackend(QObject):
             else:
                 setting.value = value
             db.flush()
-            self._scheduler(db).rebalance_schedule()
+            self._scheduler(db).rebalance_schedule(
+                start_date=self._today,
+                compact=True,
+                compact_horizon_days=7,
+            )
 
     def _resolve_database_path(self, store_path: Path) -> Path:
         if store_path.name.endswith("_state.json"):
