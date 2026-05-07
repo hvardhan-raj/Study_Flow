@@ -6,7 +6,12 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .defaults import build_default_notifications, default_alert_settings, default_settings, default_study_minutes
+from .defaults import (
+    build_default_notifications,
+    default_alert_settings,
+    default_settings,
+    default_study_minutes,
+)
 
 
 def merge_nested(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
@@ -52,6 +57,8 @@ def load_state(store_path: Path) -> dict[str, Any]:
     state["suggestion_dismissed"] = bool(payload.get("suggestion_dismissed", False))
     if isinstance(payload.get("study_minutes"), list):
         state["study_minutes"] = payload["study_minutes"]
+    if "notifications" in payload and not isinstance(payload["notifications"], list):
+        raise ValueError("notifications must be a list")
     if isinstance(payload.get("notifications"), list):
         state["notifications"] = [dict(notification) for notification in payload["notifications"] if isinstance(notification, dict)]
     return state

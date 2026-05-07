@@ -6,7 +6,6 @@ from typing import Any
 
 from .models import SubjectMeta
 
-
 SUBJECTS: dict[str, SubjectMeta] = {
     "General Aptitude": SubjectMeta("GA", "#EF4444"),
     "Engineering Mathematics": SubjectMeta("EM", "#3B82F6"),

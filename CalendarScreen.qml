@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Controls 2.15
+import QtQuick.Dialogs
 
 Rectangle {
     id: root
@@ -19,6 +20,7 @@ Rectangle {
             pageTitle: "Calendar"
             pageSubtitle: "MONTHLY SESSION VIEW"
             rightContent: [
+                AppButton { label: "Export iCal"; iconName: "calendar"; variant: "secondary"; small: true; onClicked: calendarExportDialog.open() },
                 AppButton { label: "Today"; iconName: "calendar"; variant: "secondary"; small: true; onClicked: backend.goToToday() }
             ]
         }
@@ -238,5 +240,15 @@ Rectangle {
                 }
             }
         }
+    }
+
+    FileDialog {
+        id: calendarExportDialog
+        title: "Save revision calendar"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "ics"
+        nameFilters: ["iCalendar files (*.ics)"]
+        selectedFile: "studyflow_revisions.ics"
+        onAccepted: backend.exportCalendar(selectedFile)
     }
 }

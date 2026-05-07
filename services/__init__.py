@@ -1,4 +1,4 @@
-from .fsrs import FSRSParameters, FSRSScheduler, FSRSReviewResult, FSRSState
+from .fsrs import FSRSParameters, FSRSReviewResult, FSRSScheduler, FSRSState
 from .reminders import (
     DesktopNotifier,
     ReminderPreferences,

@@ -8,7 +8,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Property, QObject, QMetaObject, Qt, Signal, Slot
+from PySide6.QtCore import Property, QMetaObject, QObject, Qt, QUrl, Signal, Slot
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -16,7 +16,15 @@ from sqlalchemy.orm import Session, joinedload
 from config.settings import settings
 from db.session import create_session_factory, create_sqlite_engine, init_database, session_scope
 from llm import AssistantContext, LLMService
-from models import AppSetting, ConfidenceRating, DifficultyLevel, Revision, StudySession, Subject, Topic
+from models import (
+    AppSetting,
+    ConfidenceRating,
+    DifficultyLevel,
+    Revision,
+    StudySession,
+    Subject,
+    Topic,
+)
 from nlp import NLPService, load_training_examples, train_model
 from services import (
     DesktopNotifier,
@@ -32,7 +40,6 @@ from services import (
 from .defaults import build_default_notifications, default_alert_settings
 from .ml_engine import LearningMLEngine
 from .models import SubjectMeta
-from .presenters import difficulty_color, task_payload
 from .storage import load_state, save_state
 from .viewmodels import StudyFlowReadModel
 
@@ -352,7 +359,8 @@ class StudyFlowBackend(QObject):
         return datetime.combine(self._today, time(12, 0)) - timedelta(minutes=index)
 
     def _relative_time_label(self, timestamp: datetime) -> str:
-        delta = datetime.now() - timestamp
+        now = datetime.now(timestamp.tzinfo) if timestamp.utcoffset() is not None else datetime.now()
+        delta = now - timestamp
         if delta.days > 0:
             return "Yesterday" if delta.days == 1 else f"{delta.days}d ago"
         minutes = max(0, round(delta.total_seconds() / 60))
@@ -1020,6 +1028,10 @@ class StudyFlowBackend(QObject):
         return [{"key": key, "label": ALERT_SETTING_META[key][0], "description": ALERT_SETTING_META[key][1], "color": ALERT_SETTING_META[key][2], "on": bool(self._alert_settings.get(key, False))} for key in supported_keys]
 
     @Property("QVariantMap", notify=stateChanged)
+    def reminderPreferences(self) -> dict[str, Any]:
+        return dict(self._reminder_preferences)
+
+    @Property("QVariantMap", notify=stateChanged)
     def assistantStatus(self) -> dict[str, Any]:
         return self._assistant_status
 
@@ -1518,9 +1530,20 @@ class StudyFlowBackend(QObject):
         self._save()
         self._emit()
 
-    @Slot(result=str)
-    def exportCalendar(self) -> str:
-        export_path = Path(__file__).resolve().parent.parent / "data" / "studyflow_revisions.ics"
+    def _calendar_export_path(self, output_path: str | None = None) -> Path:
+        if output_path:
+            target = str(output_path).strip()
+            if target.startswith("file:"):
+                target = QUrl(target).toLocalFile()
+            export_path = Path(target).expanduser()
+            if export_path.suffix.lower() != ".ics":
+                export_path = export_path.with_suffix(".ics")
+            return export_path
+        return Path(__file__).resolve().parent.parent / "data" / "studyflow_revisions.ics"
+
+    @Slot(str, result=str)
+    def exportCalendar(self, output_path: str | None = None) -> str:
+        export_path = self._calendar_export_path(output_path)
         write_revision_calendar(self._open_task_rows(), export_path)
         self._add_notification("Calendar Export Ready", f"Saved upcoming revision sessions to {export_path.name}.", "CAL", "#3B82F6")
         return str(export_path)

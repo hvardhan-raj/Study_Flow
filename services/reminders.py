@@ -9,6 +9,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Signal
 
+
 @dataclass(frozen=True)
 class ReminderPreferences:
     enabled: bool = True

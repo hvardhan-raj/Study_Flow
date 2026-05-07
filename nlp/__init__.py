@@ -1,4 +1,9 @@
-from .difficulty_predictor import DEFAULT_CONFIDENCE_THRESHOLD, DifficultyFeedback, DifficultyPrediction, NLPService
+from .difficulty_predictor import (
+    DEFAULT_CONFIDENCE_THRESHOLD,
+    DifficultyFeedback,
+    DifficultyPrediction,
+    NLPService,
+)
 from .training import (
     TrainingExample,
     TrainingResult,
