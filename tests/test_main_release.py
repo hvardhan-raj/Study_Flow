@@ -28,3 +28,7 @@ def test_resolve_store_path_uses_appdata_location(monkeypatch, tmp_path) -> None
     resolved = main.resolve_store_path(Path("C:/runtime"))
 
     assert resolved == tmp_path / "studyflow_data.json"
+
+
+def test_resolve_app_icon_path_uses_packaged_asset_location() -> None:
+    assert main.resolve_app_icon_path(Path("C:/runtime")) == Path("C:/runtime") / "assets" / "app" / "icon.ico"

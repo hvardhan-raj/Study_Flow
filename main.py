@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 
@@ -41,6 +41,10 @@ def resolve_store_path(runtime_dir: Path) -> Path:
     return runtime_dir / "studyflow_data.json"
 
 
+def resolve_app_icon_path(runtime_dir: Path) -> Path:
+    return runtime_dir / "assets" / "app" / "icon.ico"
+
+
 def main() -> int:
     logger = configure_logging()
     settings.ensure_directories()
@@ -53,6 +57,9 @@ def main() -> int:
     engine = QQmlApplicationEngine()
 
     runtime_dir = resolve_runtime_dir()
+    icon_path = resolve_app_icon_path(runtime_dir)
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
     store_path = resolve_store_path(runtime_dir)
     store_path.parent.mkdir(parents=True, exist_ok=True)
     backend = StudyFlowBackend(store_path)

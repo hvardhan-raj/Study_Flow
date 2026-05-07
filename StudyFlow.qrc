@@ -22,6 +22,8 @@
         <file>TagPill.qml</file>
         <file>TaskInboxScreen.qml</file>
         <file>Theme.qml</file>
+        <file>assets/app/icon.ico</file>
+        <file>assets/app/icon.svg</file>
         <file>assets/icons/alert.svg</file>
         <file>assets/icons/bell.svg</file>
         <file>assets/icons/calendar.svg</file>
