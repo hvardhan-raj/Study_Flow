@@ -63,7 +63,7 @@ def main() -> int:
     app.aboutToQuit.connect(reminder_scheduler.stop)
     app.aboutToQuit.connect(backend.shutdown)
     # Keep Python-owned QObjects strongly referenced for the full Qt app lifetime.
-    runtime_refs = RuntimeReferences(
+    app._studyflow_runtime_refs = RuntimeReferences(
         backend=backend,
         navigation=navigation,
         reminder_scheduler=reminder_scheduler,
