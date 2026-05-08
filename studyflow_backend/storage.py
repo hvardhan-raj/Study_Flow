@@ -64,6 +64,8 @@ def load_state(store_path: Path) -> dict[str, Any]:
     state["suggestion_dismissed"] = bool(payload.get("suggestion_dismissed", False))
     if isinstance(payload.get("study_minutes"), list):
         state["study_minutes"] = payload["study_minutes"]
+    if "notifications" in payload and not isinstance(payload["notifications"], list):
+        raise ValueError("notifications must be a list")
     if isinstance(payload.get("notifications"), list):
         state["notifications"] = [dict(notification) for notification in payload["notifications"] if isinstance(notification, dict)]
     return state

@@ -198,7 +198,13 @@ class SchedulerService:
         self.rebalance_schedule(start_date=next_day)
         return revision
 
-    def rebalance_schedule(self, *, start_date: date | None = None) -> None:
+    def rebalance_schedule(
+        self,
+        *,
+        start_date: date | None = None,
+        compact: bool = False,
+        compact_horizon_days: int | None = None,
+    ) -> None:
         revisions = list(
             self.session.scalars(
                 select(Revision)
@@ -210,12 +216,30 @@ class SchedulerService:
         if not revisions:
             return
 
+        preferred_time = self._preferred_time()
+        daily_limit = self._daily_time_minutes()
+
+        if compact and start_date is not None:
+            queue = [revision for revision in revisions if revision.due_at.date() >= start_date]
+            if compact_horizon_days is not None:
+                end_date = start_date + timedelta(days=max(0, compact_horizon_days))
+                queue = [revision for revision in queue if revision.due_at.date() <= end_date]
+            current_day = start_date
+            while queue:
+                scheduled, queue = self._select_revisions_for_day(queue, daily_limit)
+                cursor = datetime.combine(current_day, preferred_time)
+                for revision in scheduled:
+                    duration = self._task_duration_minutes(revision.topic)
+                    revision.due_at = cursor
+                    cursor += timedelta(minutes=duration + BUFFER_MINUTES)
+                current_day += timedelta(days=1)
+            self.session.flush()
+            return
+
         grouped: dict[date, list[Revision]] = {}
         for revision in revisions:
             grouped.setdefault(revision.due_at.date(), []).append(revision)
 
-        preferred_time = self._preferred_time()
-        daily_limit = self._daily_time_minutes()
         if start_date is not None:
             grouped = {day: items for day, items in grouped.items() if day >= start_date}
             if not grouped:

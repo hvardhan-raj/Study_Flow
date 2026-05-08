@@ -111,6 +111,31 @@ def test_overflow_moves_remaining_tasks_to_next_day(session) -> None:
     assert day_two[0].due_at == datetime(2026, 4, 16, 18, 0, 0)
 
 
+def test_compact_rebalance_pulls_overflow_back_after_daily_limit_increase(session) -> None:
+    session.merge(AppSetting(key="preferred_time", value="18:00"))
+    session.merge(AppSetting(key="daily_time_minutes", value="60"))
+
+    topic_repo = TopicRepository(session)
+    subject = topic_repo.create_subject("Biology")
+    topic_a = topic_repo.create_topic(subject_id=subject.id, name="Photosynthesis", difficulty="hard")
+    topic_b = topic_repo.create_topic(subject_id=subject.id, name="Respiration", difficulty="hard")
+    scheduler = _build_scheduler(session, date(2026, 4, 15))
+
+    scheduler.create_first_revision(topic_a.id, scheduled_for=date(2026, 4, 15))
+    scheduler.create_first_revision(topic_b.id, scheduled_for=date(2026, 4, 15))
+    assert [task.topic.name for task in scheduler.get_tasks_for_date(date(2026, 4, 15))] == ["Photosynthesis"]
+
+    session.merge(AppSetting(key="daily_time_minutes", value="120"))
+    session.flush()
+    scheduler.rebalance_schedule(start_date=date(2026, 4, 15), compact=True)
+    day_one = scheduler.get_tasks_for_date(date(2026, 4, 15))
+    day_two = scheduler.get_tasks_for_date(date(2026, 4, 16))
+    session.commit()
+
+    assert [task.topic.name for task in day_one] == ["Photosynthesis", "Respiration"]
+    assert day_two == []
+
+
 def test_rebalance_balances_same_day_load_across_two_to_three_subjects(session) -> None:
     session.merge(AppSetting(key="preferred_time", value="18:00"))
     session.merge(AppSetting(key="daily_time_minutes", value="240"))

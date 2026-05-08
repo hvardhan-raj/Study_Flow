@@ -8,7 +8,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Property, QMetaObject, QObject, Qt, Signal, Slot
+from PySide6.QtCore import Property, QMetaObject, QObject, Qt, QUrl, Signal, Slot
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -162,7 +162,11 @@ class StudyFlowBackend(QObject):
             else:
                 setting.value = value
             db.flush()
-            self._scheduler(db).rebalance_schedule()
+            self._scheduler(db).rebalance_schedule(
+                start_date=self._today,
+                compact=True,
+                compact_horizon_days=7,
+            )
 
     def _resolve_database_path(self, store_path: Path) -> Path:
         if store_path.suffix.lower() == ".json":
@@ -1114,6 +1118,10 @@ class StudyFlowBackend(QObject):
         return [{"key": key, "label": ALERT_SETTING_META[key][0], "description": ALERT_SETTING_META[key][1], "color": ALERT_SETTING_META[key][2], "on": bool(self._alert_settings.get(key, False))} for key in supported_keys]
 
     @Property("QVariantMap", notify=stateChanged)
+    def reminderPreferences(self) -> dict[str, Any]:
+        return dict(self._reminder_preferences)
+
+    @Property("QVariantMap", notify=stateChanged)
     def assistantStatus(self) -> dict[str, Any]:
         return self._assistant_status
 
@@ -1169,7 +1177,10 @@ class StudyFlowBackend(QObject):
     @Slot(str, str)
     def updateScheduleSetting(self, key: str, value: str) -> None:
         if key == "daily_time_minutes":
-            normalized = str(max(15, int(value)))
+            try:
+                normalized = str(max(15, int(value)))
+            except (TypeError, ValueError):
+                return
         elif key == "preferred_time":
             time.fromisoformat(value)
             normalized = value
@@ -1716,10 +1727,6 @@ class StudyFlowBackend(QObject):
         hour, minute = self._reminder_preferences["notification_time"].split(":", maxsplit=1)
         return ReminderPreferences(enabled=bool(self._reminder_preferences["enabled"]), notification_time=time(hour=int(hour), minute=int(minute)), minimum_due_for_alert=int(self._reminder_preferences["minimum_due_for_alert"]), desktop_notifications=bool(self._reminder_preferences["desktop_notifications"]))
 
-    @Property("QVariantMap", notify=stateChanged)
-    def reminderPreferences(self) -> dict[str, Any]:
-        return dict(self._reminder_preferences)
-
     @Slot(str, str)
     def updateReminderPreference(self, key: str, value: str) -> None:
         if key not in self._reminder_preferences:
@@ -1734,9 +1741,20 @@ class StudyFlowBackend(QObject):
         self._save()
         self._emit()
 
-    @Slot(result=str)
-    def exportCalendar(self) -> str:
-        export_path = Path(__file__).resolve().parent.parent / "data" / "studyflow_revisions.ics"
+    def _calendar_export_path(self, output_path: str | None = None) -> Path:
+        if output_path:
+            target = str(output_path).strip()
+            if target.startswith("file:"):
+                target = QUrl(target).toLocalFile()
+            export_path = Path(target).expanduser()
+            if export_path.suffix.lower() != ".ics":
+                export_path = export_path.with_suffix(".ics")
+            return export_path
+        return Path(__file__).resolve().parent.parent / "data" / "studyflow_revisions.ics"
+
+    @Slot(str, result=str)
+    def exportCalendar(self, output_path: str | None = None) -> str:
+        export_path = self._calendar_export_path(output_path)
         write_revision_calendar(self._open_task_rows(), export_path)
         self._add_notification("Calendar Export Ready", f"Saved upcoming revision sessions to {export_path.name}.", "CAL", "#3B82F6")
         return str(export_path)
