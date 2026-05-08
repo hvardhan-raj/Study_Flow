@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from models import ConfidenceRating, Revision, StudySession, Subject, Topic
+from time_utils import naive_local_now
 
 
 class TopicRepository:
@@ -109,7 +110,7 @@ class RevisionRepository:
             raise ValueError(f"Revision {revision_id} does not exist")
 
         revision.status = "completed"
-        revision.completed_at = completed_at or datetime.now()
+        revision.completed_at = completed_at or naive_local_now()
         revision.rating = confidence_rating.value
         self.session.flush()
         return revision

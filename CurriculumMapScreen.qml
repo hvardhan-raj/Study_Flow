@@ -184,13 +184,18 @@ Rectangle {
                                     width: 34
                                     height: 34
                                     radius: 10
-                                    color: Qt.rgba(modelData.accentColor.r, modelData.accentColor.g, modelData.accentColor.b, 0.12)
+                                    color: Qt.rgba(subjectData.accentColor.r, subjectData.accentColor.g, subjectData.accentColor.b, 0.14)
+                                    border.width: 1
+                                    border.color: Qt.rgba(subjectData.accentColor.r, subjectData.accentColor.g, subjectData.accentColor.b, 0.26)
 
                                     Text {
                                         anchors.centerIn: parent
-                                        text: subjectData.iconText
-                                        font.pixelSize: 15
-                                        color: subjectData.accentColor
+                                        text: (subjectData.iconText && subjectData.iconText.length > 0)
+                                            ? subjectData.iconText
+                                            : String(subjectData.subjectName || "?").slice(0, 2).toUpperCase()
+                                        font.pixelSize: 12
+                                        font.bold: true
+                                        color: "#0F172A"
                                     }
                                 }
 
@@ -382,7 +387,7 @@ Rectangle {
 
     RoundedDialog {
         id: importDialog
-        width: 480
+        width: 520
         title: "Bulk Import Topics"
         standardButtons: Dialog.Ok | Dialog.Cancel
         onAccepted: backend.importTopics(importText.text, importSubjectBox.currentValue, csvModeCheck.checked)
@@ -401,14 +406,26 @@ Rectangle {
 
             CheckBox {
                 id: csvModeCheck
-                text: "Treat input as CSV (first column)"
+                text: "Treat input as CSV rows"
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: csvModeCheck.checked
+                    ? "CSV format: topic or subject,topic,difficulty. Header rows like subject,topic,difficulty are also supported. Missing subjects will be created automatically."
+                    : "Line format: one topic per line, or Subject | Topic | Difficulty."
+                wrapMode: Text.WordWrap
+                font.pixelSize: 10
+                color: "#64748B"
             }
 
             TextArea {
                 id: importText
                 Layout.fillWidth: true
                 Layout.preferredHeight: 180
-                placeholderText: "Paste one topic per line, or CSV rows"
+                placeholderText: csvModeCheck.checked
+                    ? "subject,topic,difficulty\nPhysics,Wave Optics,Hard\nChemistry,Hydrocarbons,Medium"
+                    : "Physics | Wave Optics | Hard\nChemistry | Hydrocarbons | Medium\nStandalone Topic"
                 wrapMode: TextEdit.WordWrap
             }
         }

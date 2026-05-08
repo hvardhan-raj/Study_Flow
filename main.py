@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 
@@ -14,6 +15,16 @@ from config.logging import configure_logging
 from config.settings import settings
 from services import ReminderScheduler
 from ui import NavigationController
+
+
+@dataclass
+class RuntimeReferences:
+    backend: StudyFlowBackend
+    navigation: NavigationController
+    reminder_scheduler: ReminderScheduler
+
+
+_runtime_refs: RuntimeReferences | None = None
 
 
 def resolve_runtime_dir() -> Path:
@@ -33,7 +44,12 @@ def resolve_store_path(runtime_dir: Path) -> Path:
     return runtime_dir / "studyflow_data.json"
 
 
+def resolve_app_icon_path(runtime_dir: Path) -> Path:
+    return runtime_dir / "assets" / "app" / "icon.ico"
+
+
 def main() -> int:
+    global _runtime_refs
     logger = configure_logging()
     settings.ensure_directories()
 
@@ -45,21 +61,24 @@ def main() -> int:
     engine = QQmlApplicationEngine()
 
     runtime_dir = resolve_runtime_dir()
+    icon_path = resolve_app_icon_path(runtime_dir)
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
     store_path = resolve_store_path(runtime_dir)
     store_path.parent.mkdir(parents=True, exist_ok=True)
     backend = StudyFlowBackend(store_path)
     navigation = NavigationController()
-    reminder_scheduler = ReminderScheduler(preferences=backend._reminder_preferences_model())
+    reminder_scheduler = ReminderScheduler(preferences_provider=backend._reminder_preferences_model)
     reminder_scheduler.jobRequested.connect(backend.runReminderCheck, Qt.ConnectionType.QueuedConnection)
     reminder_scheduler.start()
     app.aboutToQuit.connect(reminder_scheduler.stop)
     app.aboutToQuit.connect(backend.shutdown)
     # Keep Python-owned QObjects strongly referenced for the full Qt app lifetime.
-    app._backend = backend
-    app._navigation = navigation
-    app._reminder_scheduler = reminder_scheduler
-    engine._backend = backend
-    engine._navigation = navigation
+    _runtime_refs = RuntimeReferences(
+        backend=backend,
+        navigation=navigation,
+        reminder_scheduler=reminder_scheduler,
+    )
     engine.rootContext().setContextProperty("backend", backend)
     engine.rootContext().setContextProperty("navigation", navigation)
     engine.addImportPath(str(runtime_dir))

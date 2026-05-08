@@ -29,3 +29,137 @@ World War II,medium
 Cold War,medium
 Roman Empire,medium
 Historiography methods,hard
+Data structures basics,easy
+Algorithms basics,easy
+Operating system basics,easy
+Computer networks basics,easy
+Database fundamentals,easy
+Object oriented programming,medium
+Discrete mathematics,medium
+Data structures and algorithms,medium
+Database normalization,medium
+Computer organization,medium
+Compiler design,hard
+Operating system synchronization,hard
+Computer networks routing,hard
+Algorithm analysis,hard
+Machine learning basics,hard
+C programming pointers,medium
+Java inheritance,easy
+Python file handling,easy
+SQL joins,medium
+Recursion and backtracking,medium
+Discrete Mathematics graphs,easy
+Discrete Mathematics sets,easy
+Discrete Mathematics logic,medium
+Discrete Mathematics relations,medium
+Discrete Mathematics functions,medium
+Linear Algebra matrices,hard
+Linear Algebra determinants,hard
+Linear Algebra eigenvectors,hard
+Linear Algebra vector spaces,hard
+Calculus limits,easy
+Calculus derivatives,easy
+Calculus integrals,easy
+Calculus multivariable,hard
+Probability random variables,hard
+Probability bayes theorem,hard
+Statistics hypothesis testing,hard
+Statistics regression,hard
+Boolean algebra laws,easy
+Boolean algebra simplification,medium
+Karnaugh maps,easy
+Combinational circuits adders,medium
+Combinational circuits multiplexers,easy
+Sequential circuits flip flops,hard
+Sequential circuits counters,easy
+Sequential circuits FSM,hard
+Number systems binary,medium
+Number systems floating point,medium
+Machine instructions,hard
+Addressing modes,medium
+ALU design,hard
+Datapath control unit,easy
+Pipelining hazards,easy
+Memory hierarchy cache,hard
+Virtual memory paging,hard
+I/O interfaces DMA,medium
+C programming functions,medium
+C programming structures,medium
+Recursion basics,hard
+Arrays operations,easy
+Stacks queues,medium
+Linked lists singly,medium
+Linked lists doubly,easy
+Trees binary,hard
+Trees BST,medium
+Trees heaps,hard
+Graphs representations,hard
+Searching linear binary,hard
+Sorting bubble insertion,medium
+Sorting quicksort mergesort,easy
+Hashing tables,hard
+Complexity analysis,easy
+Greedy algorithms,medium
+Dynamic programming knapsack,medium
+Divide conquer,hard
+Graph BFS DFS,hard
+MST prim kruskal,medium
+Shortest paths dijkstra bellman,easy
+Regular expressions,easy
+Finite automata DFA,medium
+Finite automata NFA,medium
+Context free grammar,medium
+Pushdown automata,medium
+Pumping lemma regular,hard
+Pumping lemma CFL,medium
+Turing machines,easy
+Undecidability halting problem,medium
+Lexical analysis tokens,hard
+Parsing top down,hard
+Parsing bottom up,medium
+Syntax directed translation,hard
+Runtime environments,hard
+Intermediate code,medium
+Code optimization local,easy
+Data flow analysis,hard
+System calls,hard
+Processes creation,easy
+Threads multithreading,easy
+IPC pipes,medium
+Concurrency race conditions,hard
+Synchronization semaphores,medium
+Synchronization monitors,hard
+Deadlock prevention,easy
+CPU scheduling FCFS,easy
+CPU scheduling SJF,hard
+Memory management segmentation,medium
+Virtual memory thrashing,hard
+File systems directory,hard
+File systems disk scheduling,hard
+ER model entities,medium
+Relational model keys,easy
+Relational algebra operations,easy
+Tuple relational calculus,easy
+SQL select join,hard
+Integrity constraints,hard
+Normal forms 1NF,hard
+Normal forms BCNF,medium
+Indexing B tree,hard
+Transactions ACID,easy
+Concurrency control locking,easy
+Recovery log based,medium
+OSI model layers,medium
+TCP IP model,medium
+Circuit packet switching,hard
+Data link framing,hard
+Data link error detection,hard
+Routing algorithms,hard
+IP addressing subnetting,medium
+ARP protocol,easy
+DHCP service,medium
+Transport TCP UDP,easy
+DNS resolution,hard
+SMTP email,easy
+HTTP protocol,hard
+FTP file transfer,medium

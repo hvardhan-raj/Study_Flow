@@ -75,3 +75,14 @@ def test_topic_update_and_delete_flow(session) -> None:
     assert updated.difficulty == DifficultyLevel.EASY.value
     assert updated.description == "Focus on timeline"
     assert topic_service.get_topic(topic.id) is None
+
+
+def test_topic_archive_status_does_not_overwrite_completion_state(session) -> None:
+    subject_service, topic_service = _build_services(session, date(2026, 4, 9))
+    subject = subject_service.create_subject(name="Computer Science")
+    topic = topic_service.create_topic(subject_id=subject.id, name="Operating Systems", auto_schedule=False)
+
+    topic_service.update_topic(topic.id, is_completed=True, is_archived=False)
+    session.commit()
+
+    assert topic.status == "completed"

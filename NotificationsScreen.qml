@@ -35,59 +35,6 @@ Rectangle {
                 Layout.fillHeight: true
                 spacing: 16
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 12
-
-                    Repeater {
-                        model: backend.notificationStats
-                        delegate: Rectangle {
-                            Layout.fillWidth: true
-                            implicitHeight: 88
-                            radius: 16
-                            color: "#FFFFFF"
-                            border.color: "#EEF2F8"
-                            border.width: 1
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 16
-                                spacing: 8
-
-                                Rectangle {
-                                    width: 28
-                                    height: 28
-                                    radius: 10
-                                    color: Qt.rgba(modelData.color.r, modelData.color.g, modelData.color.b, 0.12)
-
-                                    AppIcon {
-                                        anchors.centerIn: parent
-                                        name: index === 0 ? "bell" : (index === 1 ? "alert" : "calendar")
-                                        tint: modelData.color
-                                        size: 14
-                                    }
-                                }
-
-                                Text {
-                                    text: modelData.value
-                                    font.pixelSize: 24
-                                    font.bold: true
-                                    font.family: "Segoe UI"
-                                    color: modelData.color
-                                }
-
-                                Text {
-                                    text: modelData.label
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                    font.family: "Segoe UI"
-                                    color: "#334155"
-                                }
-                            }
-                        }
-                    }
-                }
-
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -266,34 +213,6 @@ Rectangle {
                             Layout.fillWidth: true
                         }
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 10
-
-                            Repeater {
-                                model: [
-                                    { label: "Unread", value: backend.todayDigest.unread, color: "#3B82F6" },
-                                    { label: "Overdue", value: backend.todayDigest.overdueCount, color: "#EF4444" },
-                                    { label: "Due Today", value: backend.todayDigest.dueTodayCount, color: "#F59E0B" }
-                                ]
-
-                                delegate: Rectangle {
-                                    Layout.fillWidth: true
-                                    implicitHeight: 58
-                                    radius: 12
-                                    color: Qt.rgba(modelData.color.r, modelData.color.g, modelData.color.b, 0.08)
-                                    border.color: Qt.rgba(modelData.color.r, modelData.color.g, modelData.color.b, 0.16)
-
-                                    Column {
-                                        anchors.centerIn: parent
-                                        spacing: 3
-                                        Text { text: modelData.value; font.pixelSize: 18; font.bold: true; font.family: "Segoe UI"; color: modelData.color; horizontalAlignment: Text.AlignHCenter }
-                                        Text { text: modelData.label; font.pixelSize: 10; font.bold: true; font.family: "Segoe UI"; color: "#334155"; horizontalAlignment: Text.AlignHCenter }
-                                    }
-                                }
-                            }
-                        }
-
                         Text {
                             text: backend.todayDigest.nextSession
                             font.pixelSize: 11
@@ -363,96 +282,114 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    implicitHeight: deliveryCol.implicitHeight + 32
                     radius: 18
                     color: "#FFFFFF"
                     border.color: "#EEF2F8"
                     border.width: 1
 
                     ColumnLayout {
+                        id: deliveryCol
                         anchors.fill: parent
                         anchors.margins: 16
                         spacing: 12
 
-                        Text { text: "Alert Settings"; font.pixelSize: 14; font.bold: true; font.family: "Segoe UI"; color: "#0F172A" }
+                        Text { text: "Reminder Delivery"; font.pixelSize: 14; font.bold: true; font.family: "Segoe UI"; color: "#0F172A" }
 
-                        ScrollView {
+                        Rectangle {
                             Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            clip: true
-                            contentWidth: availableWidth
+                            implicitHeight: deliveryEnabledRow.implicitHeight + 22
+                            radius: 14
+                            color: "#F8FAFC"
+                            border.color: "#E2E8F0"
 
-                            ColumnLayout {
-                                width: parent.width
+                            RowLayout {
+                                id: deliveryEnabledRow
+                                anchors.fill: parent
+                                anchors.margins: 12
                                 spacing: 10
 
-                                Repeater {
-                                    model: backend.alertSettings
-                                    delegate: Rectangle {
-                                        Layout.fillWidth: true
-                                        implicitHeight: settingCol.implicitHeight + 22
-                                        radius: 14
-                                        color: "#F8FAFC"
-                                        border.color: "#E2E8F0"
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    Text { text: "Reminder checks"; font.pixelSize: 11; font.bold: true; font.family: "Segoe UI"; color: "#334155" }
+                                    Text { text: "Keeps the notification worker active for daily digests and scheduled study alerts."; font.pixelSize: 10; font.family: "Segoe UI"; color: "#64748B"; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                }
 
-                                        ColumnLayout {
-                                            id: settingCol
-                                            anchors.fill: parent
-                                            anchors.margins: 12
-                                            spacing: 8
+                                Rectangle {
+                                    width: 40
+                                    height: 22
+                                    radius: 11
+                                    color: backend.reminderPreferences.enabled ? "#10B981" : "#D1D9E6"
+                                    Behavior on color { ColorAnimation { duration: 160 } }
 
-                                            RowLayout {
-                                                Layout.fillWidth: true
-                                                spacing: 10
+                                    Rectangle {
+                                        width: 18
+                                        height: 18
+                                        radius: 9
+                                        color: "#FFFFFF"
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        x: backend.reminderPreferences.enabled ? parent.width - width - 2 : 2
+                                        Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    }
 
-                                                Rectangle { width: 4; height: 22; radius: 2; color: modelData.color }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: backend.updateReminderPreference("enabled", backend.reminderPreferences.enabled ? "false" : "true")
+                                    }
+                                }
+                            }
+                        }
 
-                                                Text {
-                                                    text: modelData.label
-                                                    font.pixelSize: 11
-                                                    font.bold: true
-                                                    font.family: "Segoe UI"
-                                                    color: "#334155"
-                                                    Layout.fillWidth: true
-                                                    wrapMode: Text.WordWrap
-                                                }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: desktopRow.implicitHeight + 22
+                            radius: 14
+                            color: "#F8FAFC"
+                            border.color: "#E2E8F0"
 
-                                                Rectangle {
-                                                    width: 40
-                                                    height: 22
-                                                    radius: 11
-                                                    color: modelData.on ? modelData.color : "#D1D9E6"
-                                                    Behavior on color { ColorAnimation { duration: 160 } }
+                            RowLayout {
+                                id: desktopRow
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 10
 
-                                                    Rectangle {
-                                                        width: 18
-                                                        height: 18
-                                                        radius: 9
-                                                        color: "#FFFFFF"
-                                                        anchors.verticalCenter: parent.verticalCenter
-                                                        x: modelData.on ? parent.width - width - 2 : 2
-                                                        Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-                                                    }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    Text { text: "System study notifications"; font.pixelSize: 11; font.bold: true; font.family: "Segoe UI"; color: "#334155" }
+                                    Text { text: "Show a desktop notification when a scheduled study block reaches its start time."; font.pixelSize: 10; font.family: "Segoe UI"; color: "#64748B"; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                }
 
-                                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: backend.toggleAlertSetting(modelData.key) }
-                                                }
-                                            }
+                                Rectangle {
+                                    width: 40
+                                    height: 22
+                                    radius: 11
+                                    color: backend.reminderPreferences.desktop_notifications ? "#3B82F6" : "#D1D9E6"
+                                    Behavior on color { ColorAnimation { duration: 160 } }
 
-                                            Text {
-                                                text: modelData.description
-                                                font.pixelSize: 10
-                                                font.family: "Segoe UI"
-                                                color: "#64748B"
-                                                Layout.fillWidth: true
-                                                wrapMode: Text.WordWrap
-                                            }
-                                        }
+                                    Rectangle {
+                                        width: 18
+                                        height: 18
+                                        radius: 9
+                                        color: "#FFFFFF"
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        x: backend.reminderPreferences.desktop_notifications ? parent.width - width - 2 : 2
+                                        Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: backend.updateReminderPreference("desktop_notifications", backend.reminderPreferences.desktop_notifications ? "false" : "true")
                                     }
                                 }
                             }
                         }
                     }
                 }
+
             }
         }
     }

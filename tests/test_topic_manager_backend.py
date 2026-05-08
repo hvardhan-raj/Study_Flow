@@ -34,3 +34,28 @@ def test_suggest_and_import_topics_work(tmp_path) -> None:
     assert suggestion["confidence"] >= 0.0
     assert len(backend._topics) == original_topic_count + 2
     assert any(topic["name"] == "Topic Alpha" for topic in backend._topics)
+
+
+def test_import_topics_accepts_subject_and_difficulty_columns(tmp_path) -> None:
+    backend = StudyFlowBackend(tmp_path / "topic_manager_state.csv_state.json")
+
+    backend.importTopics(
+        "subject,topic,difficulty\nPhysics,Optics,Hard\nChemistry,Hydrocarbons,Easy",
+        "",
+        True,
+    )
+
+    imported_topics = {topic["name"]: topic for topic in backend._topics}
+
+    assert imported_topics["Optics"]["subject"] == "Physics"
+    assert imported_topics["Optics"]["difficulty"] == "Hard"
+    assert imported_topics["Hydrocarbons"]["subject"] == "Chemistry"
+    assert imported_topics["Hydrocarbons"]["difficulty"] == "Easy"
+    assert any(subject["subjectName"] == "Chemistry" for subject in backend.curriculumSubjects)
+
+
+def test_release_style_store_path_starts_without_demo_data(tmp_path) -> None:
+    backend = StudyFlowBackend(tmp_path / "studyflow_data.json")
+
+    assert backend.curriculumSummary["total_topics"] == 0
+    assert backend.curriculumSubjects == []
