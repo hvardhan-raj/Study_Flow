@@ -21,6 +21,21 @@ class FakeClient:
         return self.response
 
 
+class FallbackModelClient(FakeClient):
+    def __init__(self, *, configured_model: str, installed_models: list[str], response: str) -> None:
+        super().__init__(available=True, response=response, has_model=configured_model in installed_models)
+        self.model = configured_model
+        self._installed_models = installed_models
+
+    def list_models(self) -> list[str]:
+        return list(self._installed_models)
+
+    def effective_model(self) -> str:
+        if self.model in self._installed_models:
+            return self.model
+        return self._installed_models[0] if self._installed_models else ""
+
+
 def test_llm_service_uses_offline_guidance_when_ollama_unavailable() -> None:
     service = LLMService(client=FakeClient(False))
     context = AssistantContext(
@@ -52,7 +67,7 @@ def test_llm_status_reports_missing_model_when_ollama_is_running_without_target_
     status = service.status()
 
     assert status["available"] is False
-    assert "not installed" in status["message"]
+    assert "offline guidance" in status["message"]
 
 
 def test_llm_status_reports_offline_setup_guidance() -> None:
@@ -87,3 +102,25 @@ def test_llm_service_handles_all_canned_assistant_prompts_offline() -> None:
         assert response["source"] == "offline"
         assert expected in response["text"]
         assert "-" in response["text"]
+
+
+def test_llm_service_uses_installed_fallback_model_when_configured_model_is_missing() -> None:
+    service = LLMService(
+        client=FallbackModelClient(
+            configured_model="llama3.2:3b",
+            installed_models=["mistral:7b"],
+            response="Start with kinematics recall, then check errors.",
+        )
+    )
+    context = AssistantContext([], [], [], [], {})
+
+    response = service.answer("What should I study now?", context)
+    status = service.status()
+
+    assert response == {
+        "text": "Start with kinematics recall, then check errors.",
+        "source": "ollama",
+    }
+    assert status["available"] is True
+    assert status["model"] == "mistral:7b"
+    assert "using mistral:7b instead" in status["message"]

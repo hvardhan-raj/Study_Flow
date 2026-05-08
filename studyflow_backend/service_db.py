@@ -864,6 +864,32 @@ class StudyFlowBackend(QObject):
         return rows
 
     @Property("QVariantList", notify=stateChanged)
+    def retentionTrend(self) -> list[dict[str, Any]]:
+        cached = self._projection_cache.get("retention_trend")
+        if cached is not None:
+            return cached
+
+        today = self._today
+        rows = []
+        for offset in range(6, -1, -1):
+            day = today - timedelta(days=offset)
+            day_tasks = [task for task in self._tasks if task["scheduled_at"].date() == day]
+            completed = len([task for task in day_tasks if task["completed"]])
+            scheduled = len(day_tasks)
+            score = round((completed / scheduled) * 100) if scheduled else 0
+            rows.append({
+                "day": day.strftime("%a"),
+                "date": day.strftime("%d"),
+                "value": score,
+                "completed": completed,
+                "scheduled": scheduled,
+                "isToday": day == today,
+            })
+
+        self._projection_cache["retention_trend"] = rows
+        return rows
+
+    @Property("QVariantList", notify=stateChanged)
     def calendarCells(self) -> list[dict[str, Any]]:
         import calendar
         cache_key = f"calendar_cells:{self._calendar_view_date.isoformat()}:{self._selected_date.isoformat()}"

@@ -24,6 +24,9 @@ class RuntimeReferences:
     reminder_scheduler: ReminderScheduler
 
 
+_runtime_refs: RuntimeReferences | None = None
+
+
 def resolve_runtime_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
@@ -46,6 +49,7 @@ def resolve_app_icon_path(runtime_dir: Path) -> Path:
 
 
 def main() -> int:
+    global _runtime_refs
     logger = configure_logging()
     settings.ensure_directories()
 
@@ -70,7 +74,7 @@ def main() -> int:
     app.aboutToQuit.connect(reminder_scheduler.stop)
     app.aboutToQuit.connect(backend.shutdown)
     # Keep Python-owned QObjects strongly referenced for the full Qt app lifetime.
-    app._studyflow_runtime_refs = RuntimeReferences(
+    _runtime_refs = RuntimeReferences(
         backend=backend,
         navigation=navigation,
         reminder_scheduler=reminder_scheduler,

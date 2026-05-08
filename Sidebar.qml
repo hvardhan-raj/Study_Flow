@@ -26,16 +26,18 @@ Rectangle {
             Rectangle {
                 width: 36; height: 36
                 radius: 11
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: "#3B82F6" }
-                    GradientStop { position: 1.0; color: "#1D4ED8" }
-                }
-                Text {
+                color: "#FFFFFF"
+                border.color: "#1F2937"
+                border.width: 1
+
+                Image {
                     anchors.centerIn: parent
-                    text: "S"
-                    font.pixelSize: 17
-                    font.bold: true
-                    color: "white"
+                    width: 28
+                    height: 28
+                    source: "assets/app/icon.svg"
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    mipmap: true
                 }
             }
 

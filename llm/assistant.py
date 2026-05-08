@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-DEFAULT_MODEL = "llama3.2:3b"
-DEFAULT_BASE_URL = "http://localhost:11434"
+DEFAULT_MODEL = os.getenv("STUDYFLOW_OLLAMA_MODEL", "llama3.2:3b")
+DEFAULT_BASE_URL = os.getenv("STUDYFLOW_OLLAMA_BASE_URL", "http://localhost:11434")
 MODEL_LIST_CACHE_TTL_SECONDS = 3.0
 
 Intent = Literal[
@@ -45,6 +46,20 @@ class AssistantContext:
     recent_messages: list[dict[str, Any]] | None = None
 
 
+class AssistantClient(Protocol):
+    model: str
+
+    def generate(self, prompt: str, context: AssistantContext) -> str: ...
+
+    def has_model(self) -> bool: ...
+
+    def is_available(self) -> bool: ...
+
+    def list_models(self, force_refresh: bool = False) -> list[str]: ...
+
+    def effective_model(self) -> str: ...
+
+
 class OllamaClient:
     def __init__(
         self,
@@ -57,6 +72,12 @@ class OllamaClient:
         self.timeout = timeout
         self._models_cache: list[str] = []
         self._models_cache_at = 0.0
+
+    def effective_model(self) -> str:
+        models = self.list_models()
+        if self.model in models:
+            return self.model
+        return models[0] if models else ""
 
     def list_models(self, force_refresh: bool = False) -> list[str]:
         if not force_refresh and (time.monotonic() - self._models_cache_at) < MODEL_LIST_CACHE_TTL_SECONDS:
@@ -93,9 +114,10 @@ class OllamaClient:
         intent = ResponsePlanner.detect_intent(prompt)
         tone = ResponsePlanner.pick_tone(intent, context)
         built_prompt = self._build_prompt(prompt, context, intent=intent, tone=tone)
+        model_name = self.effective_model() or self.model
 
         payload = {
-            "model": self.model,
+            "model": model_name,
             "prompt": built_prompt,
             "stream": False,
             "options": {
@@ -329,7 +351,7 @@ class ResponsePlanner:
 
 
 class LLMService:
-    def __init__(self, client: OllamaClient | None = None) -> None:
+    def __init__(self, client: AssistantClient | None = None) -> None:
         self.client = client or OllamaClient()
 
     def _available_models(self) -> list[str]:
@@ -345,27 +367,47 @@ class LLMService:
 
         return []
 
+    def _effective_model(self) -> str:
+        if hasattr(self.client, "effective_model"):
+            model = str(self.client.effective_model()).strip()
+            if model:
+                return model
+
+        models = self._available_models()
+        preferred_model = str(getattr(self.client, "model", "")).strip()
+        if preferred_model and preferred_model in models:
+            return preferred_model
+        if models:
+            return models[0]
+        if hasattr(self.client, "has_model") and self.client.has_model():
+            return preferred_model
+        return ""
+
     def status(self) -> dict[str, Any]:
         models = self._available_models()
-        available = bool(models)
-        has_model = str(self.client.model) in models if models else False
+        preferred_model = str(getattr(self.client, "model", "")).strip()
+        effective_model = self._effective_model()
+        available = bool(effective_model)
+        has_model = preferred_model in models if models else False
 
         if models == ["available"]:
             has_model = hasattr(self.client, "has_model") and self.client.has_model()
+            available = has_model
+            effective_model = preferred_model if has_model else ""
 
         status_message = "Ollama is not running. StudyFlow will use offline guidance until local LLM is available."
 
         if available and has_model:
-            status_message = f"Ollama is running with {self.client.model}."
-        elif available:
+            status_message = f"Ollama is running with {effective_model}."
+        elif available and effective_model:
             status_message = (
-                f"Ollama is running, but model {self.client.model} is not installed. "
-                "StudyFlow is using offline guidance."
+                f"Ollama is running, but model {preferred_model} is not installed. "
+                f"StudyFlow is using {effective_model} instead."
             )
 
         return {
-            "available": available and has_model,
-            "model": self.client.model,
+            "available": available,
+            "model": effective_model or preferred_model,
             "provider": "Ollama",
             "message": status_message,
         }
@@ -379,7 +421,7 @@ class LLMService:
                 "source": "offline",
             }
 
-        if self.client.has_model():
+        if self._effective_model() or self.client.has_model():
             try:
                 response = self.client.generate(clean_prompt, context)
                 response = self._clean_response(response)

@@ -238,6 +238,21 @@ class LearningMLEngine:
         for feature in features:
             forgetting_risk = self._predict_forgetting_risk(feature)
             retention_score = round(max(0.0, min(1.0, 1.0 - forgetting_risk)) * 100.0, 1)
+            success_rate_pct = round(max(0.0, min(1.0, feature.success_rate)) * 100.0, 1)
+            error_frequency = round(100.0 - success_rate_pct, 1)
+            retention_window_days = round(max(feature.interval_days - feature.days_since_last_review, 0.0), 1)
+            projected_gain = round(
+                max(
+                    4.0,
+                    min(
+                        24.0,
+                        (forgetting_risk * 18.0)
+                        + ((1.0 - max(0.0, min(1.0, feature.success_rate))) * 8.0)
+                        + (feature.difficulty_encoded * 1.5),
+                    ),
+                ),
+                1,
+            )
             priority_score = round(
                 feature.overdue_days + feature.difficulty_encoded,
                 3,
@@ -257,6 +272,19 @@ class LearningMLEngine:
                 "overdue_days": round(feature.overdue_days, 2),
                 "difficulty": int(feature.difficulty_encoded),
                 "stability": round(feature.stability, 2),
+                "days_since_last_review": round(feature.days_since_last_review, 1),
+                "retention_window_days": retention_window_days,
+                "estimated_minutes": round(feature.estimated_minutes),
+                "review_count": round(feature.review_count),
+                "quiz_accuracy": success_rate_pct,
+                "success_rate": success_rate_pct,
+                "error_frequency": error_frequency,
+                "projected_gain": projected_gain,
+                "practice_need": self._practice_need_label(
+                    forgetting_risk=forgetting_risk,
+                    success_rate=feature.success_rate,
+                    stability=feature.stability,
+                ),
                 "engine_mode": "ml" if self._model_ready else "heuristic",
             }
 
@@ -276,12 +304,40 @@ class LearningMLEngine:
             sum(row["retention_score"] for row in topic_predictions.values()) / len(topic_predictions),
             1,
         ) if topic_predictions else 0.0
+        prediction_accuracy = self._estimate_model_accuracy()
+        weak_topics_count = len(
+            [
+                row
+                for row in topic_predictions.values()
+                if row["quiz_accuracy"] < 65.0 or row["retention_score"] < 60.0 or row["practice_need"] == "High"
+            ]
+        )
+        forgetting_soon_count = len(
+            [
+                row
+                for row in topic_predictions.values()
+                if row["forgetting_risk"] >= 0.65 or row["retention_window_days"] <= 2.0
+            ]
+        )
+        best_topic = ordered_by_priority[0] if ordered_by_priority else None
+        predicted_improvement = round(
+            sum(row["projected_gain"] for row in ordered_by_priority[:3]),
+            1,
+        ) if ordered_by_priority else 0.0
 
         dashboard = {
             "model_ready": self._model_ready,
             "engine_mode": "ml" if self._model_ready else "heuristic",
             "last_updated": local_now().isoformat(timespec="seconds"),
             "retention_score": retention_score,
+            "overview": {
+                "weak_topics_count": weak_topics_count,
+                "prediction_accuracy": prediction_accuracy,
+                "topics_forgetting_soon": forgetting_soon_count,
+                "best_topic": best_topic["topic"] if best_topic else "",
+                "suggested_revision_minutes": int(best_topic["estimated_minutes"]) if best_topic else 0,
+                "predicted_improvement": predicted_improvement,
+            },
             "high_risk_topics": ordered_by_risk[:5],
             "recommended_topics": ordered_by_priority[:5],
             "weak_topics": ordered_by_weakness[:5],
@@ -290,6 +346,30 @@ class LearningMLEngine:
         self._cache.update(dashboard)
         self._notify()
         return dashboard
+
+    def _practice_need_label(self, *, forgetting_risk: float, success_rate: float, stability: float) -> str:
+        if forgetting_risk >= 0.7 or success_rate <= 0.45 or stability <= 1.5:
+            return "High"
+        if forgetting_risk >= 0.45 or success_rate <= 0.7 or stability <= 3.0:
+            return "Medium"
+        return "Low"
+
+    def _estimate_model_accuracy(self) -> float:
+        if self._model is None or not hasattr(self._model, "predict"):
+            return 0.0
+
+        rows, targets = self._build_training_dataset()
+        if not rows or len(rows) != len(targets):
+            return 0.0
+
+        try:
+            predictions = self._model.predict(rows)
+        except Exception:
+            logger.exception("Failed to estimate learning model accuracy")
+            return 0.0
+
+        matches = sum(1 for predicted, actual in zip(predictions, targets, strict=False) if int(predicted) == int(actual))
+        return round((matches / len(targets)) * 100.0, 1) if targets else 0.0
 
     def _predict_forgetting_risk(self, feature: TopicFeatures) -> float:
         if self._model is not None and hasattr(self._model, "predict_proba"):
