@@ -6,34 +6,9 @@ from PyInstaller.utils.hooks import collect_submodules
 
 
 project_root = Path(SPECPATH)
-qml_files = [
-    "AIAssistantScreen.qml",
-    "AppButton.qml",
-    "AppIcon.qml",
-    "AppToastHost.qml",
-    "CalendarScreen.qml",
-    "CurriculumMapScreen.qml",
-    "DashboardScreen.qml",
-    "DashboardTaskCard.qml",
-    "LearningIntelligenceScreen.qml",
-    "Main.qml",
-    "NotificationsScreen.qml",
-    "PageHeader.qml",
-    "qmldir",
-    "RevisionScheduleScreen.qml",
-    "RoundedDialog.qml",
-    "SettingsRow.qml",
-    "SettingsScreen.qml",
-    "SettingsSection.qml",
-    "Sidebar.qml",
-    "SidebarItem.qml",
-    "StatCard.qml",
-    "TagPill.qml",
-    "TaskInboxScreen.qml",
-    "Theme.qml",
-    "TopicTreeCard.qml",
-]
-datas = [(str(project_root / file_name), ".") for file_name in qml_files if (project_root / file_name).exists()]
+datas = [(str(path), ".") for path in project_root.glob("*.qml")]
+if (project_root / "qmldir").exists():
+    datas.append((str(project_root / "qmldir"), "."))
 
 
 def collect_tree(source: Path, prefix: str) -> list[tuple[str, str]]:
