@@ -14,7 +14,9 @@ def test_upsert_topic_creates_child_topic_and_task(tmp_path) -> None:
     parent_topic = backend._topics[0]
     original_task_count = len(backend._tasks)
 
-    backend.upsertTopic("", "Leaf Topic", parent_topic["subject"], "Medium", parent_topic["id"], "Child notes")
+    backend.upsertTopic(
+        "", "Leaf Topic", parent_topic["subject"], "Medium", parent_topic["id"], "Child notes"
+    )
 
     created_topic = next(topic for topic in backend._topics if topic["name"] == "Leaf Topic")
     created_task = next(task for task in backend._tasks if task["topic"] == "Leaf Topic")

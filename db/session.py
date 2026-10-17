@@ -1,19 +1,35 @@
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event, inspect, text
-from sqlalchemy.engine import URL
-from sqlalchemy.orm import Session, sessionmaker
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-from config.settings import settings
-from models import Base
+from sqlalchemy import Engine, create_engine, event, inspect, text  # noqa: E402
+from sqlalchemy.engine import URL  # noqa: E402
+from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
+
+from config.settings import settings  # noqa: E402
+from models import Base  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+# ==============================================================================
+# Thread Safety Rules:
+# - The SQLAlchemy Engine is thread-safe and shared across the application.
+# - SQLite connection uses check_same_thread=False and PRAGMA journal_mode=WAL
+#   to support high-concurrency readers alongside writers.
+# - THREAD SAFETY RULE: Each thread (Qt GUI thread, LearningMLEngine thread,
+#   ReminderScheduler thread, AssistantWorker thread) MUST instantiate and use
+#   its own Session via `session_scope(session_factory)` or `get_session(session_factory)`.
+#   Never pass or share an active Session instance across thread boundaries.
+# ==============================================================================
 
 
 def build_sqlite_url(database_path: str | Path | None = None) -> str:
@@ -89,7 +105,9 @@ engine = create_sqlite_engine(database_path=settings.database_path)
 SessionLocal = create_session_factory(engine)
 
 
-def init_database(*, engine_override: Engine | None = None, database_path: str | Path | None = None) -> None:
+def init_database(
+    *, engine_override: Engine | None = None, database_path: str | Path | None = None
+) -> None:
     resolved_path = Path(database_path or settings.database_path)
     resolved_path.parent.mkdir(parents=True, exist_ok=True)
     active_engine = engine_override or engine
@@ -100,7 +118,9 @@ def init_database(*, engine_override: Engine | None = None, database_path: str |
                 f"{resolved_path.stem}.schema-mismatch-{datetime.now().strftime('%Y%m%dT%H%M%S')}{resolved_path.suffix}"
             )
             resolved_path.replace(backup_path)
-            logger.warning("Backed up schema-mismatched database from %s to %s", resolved_path, backup_path)
+            logger.warning(
+                "Backed up schema-mismatched database from %s to %s", resolved_path, backup_path
+            )
         active_engine = engine_override or create_sqlite_engine(database_path=resolved_path)
     Base.metadata.create_all(active_engine)
     _ensure_sqlite_artifacts(active_engine)
@@ -113,7 +133,15 @@ def _database_needs_reset(active_engine: Engine, database_path: Path) -> bool:
     inspector = inspect(active_engine)
     required_columns = {
         "subjects": {"id", "name", "color", "archived", "created_at", "updated_at"},
-        "topics": {"id", "subject_id", "name", "difficulty", "status", "mastery_score", "review_count"},
+        "topics": {
+            "id",
+            "subject_id",
+            "name",
+            "difficulty",
+            "status",
+            "mastery_score",
+            "review_count",
+        },
         "revisions": {"id", "topic_id", "due_at", "status", "interval_days", "stability"},
     }
     table_names = set(inspector.get_table_names())
@@ -188,3 +216,8 @@ def _ensure_sqlite_artifacts(active_engine: Engine) -> None:
     with active_engine.begin() as connection:
         for statement in statements:
             connection.execute(text(statement))
+
+
+if __name__ == "__main__":
+    init_database()
+    print("Database initialized successfully at:", settings.database_path)

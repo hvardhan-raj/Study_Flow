@@ -9,7 +9,18 @@ def test_selected_day_sessions_include_rich_schedule_fields(tmp_path) -> None:
 
     assert sessions
     first = sessions[0]
-    assert {"id", "topic", "name", "subject", "duration", "time", "durationText", "color", "status", "completed"} <= set(first)
+    assert {
+        "id",
+        "topic",
+        "name",
+        "subject",
+        "duration",
+        "time",
+        "durationText",
+        "color",
+        "status",
+        "completed",
+    } <= set(first)
 
 
 def test_revision_week_summary_matches_week_rows(tmp_path) -> None:

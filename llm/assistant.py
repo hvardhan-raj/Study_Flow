@@ -80,7 +80,10 @@ class OllamaClient:
         return models[0] if models else ""
 
     def list_models(self, force_refresh: bool = False) -> list[str]:
-        if not force_refresh and (time.monotonic() - self._models_cache_at) < MODEL_LIST_CACHE_TTL_SECONDS:
+        if (
+            not force_refresh
+            and (time.monotonic() - self._models_cache_at) < MODEL_LIST_CACHE_TTL_SECONDS
+        ):
             return list(self._models_cache)
 
         try:
@@ -300,22 +303,63 @@ class ResponsePlanner:
         if any(x in p for x in ("quiz", "test me", "ask me", "mcq", "question me")):
             return "quiz"
 
-        if any(x in p for x in ("explain", "teach", "what is", "revise", "concept", "help me understand")):
+        if any(
+            x in p
+            for x in ("explain", "teach", "what is", "revise", "concept", "help me understand")
+        ):
             return "topic_explain"
 
-        if any(x in p for x in ("am i on track", "on track", "behind", "can i recover", "will i pass", "exam", "final", "midterm", "checkpoint")):
+        if any(
+            x in p
+            for x in (
+                "am i on track",
+                "on track",
+                "behind",
+                "can i recover",
+                "will i pass",
+                "exam",
+                "final",
+                "midterm",
+                "checkpoint",
+            )
+        ):
             return "exam_readiness"
 
-        if any(x in p for x in ("improving", "progress", "better than before", "trend", "performance")):
+        if any(
+            x in p for x in ("improving", "progress", "better than before", "trend", "performance")
+        ):
             return "progress"
 
-        if any(x in p for x in ("weak", "attention", "struggling", "lowest confidence", "focus on", "problem area")):
+        if any(
+            x in p
+            for x in (
+                "weak",
+                "attention",
+                "struggling",
+                "lowest confidence",
+                "focus on",
+                "problem area",
+            )
+        ):
             return "diagnosis"
 
-        if any(x in p for x in ("what should i study", "study today", "study now", "start with", "today", "next")):
+        if any(
+            x in p
+            for x in (
+                "what should i study",
+                "study today",
+                "study now",
+                "start with",
+                "today",
+                "next",
+            )
+        ):
             return "study_plan"
 
-        if any(x in p for x in ("stressed", "scared", "panic", "demotivated", "tired", "give up", "cooked")):
+        if any(
+            x in p
+            for x in ("stressed", "scared", "panic", "demotivated", "tired", "give up", "cooked")
+        ):
             return "motivation"
 
         return "general"

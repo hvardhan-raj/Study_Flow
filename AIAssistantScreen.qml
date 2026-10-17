@@ -7,6 +7,7 @@ Rectangle {
     color: "#F0F4F9"
 
     function sendPrompt(text) {
+        if (backend.assistantBusy) return
         var clean = (text || messageInput.text).trim()
         if (clean.length === 0) return
         backend.sendAssistantMessage(clean)
@@ -166,9 +167,24 @@ Rectangle {
                                     model: backend.assistantPrompts
                                     delegate: AppButton {
                                         label: modelData.label; variant: "secondary"; small: true
+                                        enabled: !backend.assistantBusy
                                         onClicked: root.sendPrompt(modelData.prompt)
                                     }
                                 }
+                            }
+                        }
+
+                        // Thinking indicator
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: backend.assistantBusy
+                            spacing: 6
+                            Text {
+                                text: "AI is thinking and preparing your study guidance..."
+                                font.pixelSize: 11
+                                font.italic: true
+                                font.family: "Segoe UI"
+                                color: "#64748B"
                             }
                         }
 
@@ -212,7 +228,8 @@ Rectangle {
                             }
 
                             AppButton {
-                                label: "Send"; variant: "primary"
+                                label: backend.assistantBusy ? "Thinking…" : "Send"; variant: "primary"
+                                enabled: !backend.assistantBusy
                                 onClicked: {
                                     messageInput.text = msgArea.text
                                     root.sendPrompt("")

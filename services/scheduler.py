@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
-from typing import Callable
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -46,7 +46,9 @@ class SchedulerService:
     def _today(self) -> date:
         return self._today_provider()
 
-    def create_first_revision(self, topic_id: int | str, *, scheduled_for: date | None = None) -> Revision:
+    def create_first_revision(
+        self, topic_id: int | str, *, scheduled_for: date | None = None
+    ) -> Revision:
         topic = self._require_topic(topic_id)
         self._ensure_single_active_revision(topic.id)
 
@@ -84,7 +86,9 @@ class SchedulerService:
         quality = QUALITY_BY_RATING[rating]
         repetition = max(0, int(topic.review_count or 0))
         previous_interval = max(float(revision.interval_days or 0.0), 0.0)
-        ease_factor = max(float(revision.difficulty_adjustment or DEFAULT_EASE_FACTOR), MIN_EASE_FACTOR)
+        ease_factor = max(
+            float(revision.difficulty_adjustment or DEFAULT_EASE_FACTOR), MIN_EASE_FACTOR
+        )
         overdue_days = max((finished_at.date() - revision.due_at.date()).days, 0)
 
         if quality < 3:
@@ -120,7 +124,9 @@ class SchedulerService:
 
         next_revision = Revision(
             topic_id=topic.id,
-            due_at=datetime.combine(finished_at.date() + timedelta(days=next_interval), self._preferred_time()),
+            due_at=datetime.combine(
+                finished_at.date() + timedelta(days=next_interval), self._preferred_time()
+            ),
             status="open",
             scheduled_from_revision_id=revision.id,
             interval_days=float(next_interval),
@@ -162,7 +168,9 @@ class SchedulerService:
         self.session.flush()
         return revision
 
-    def schedule_new_topic(self, topic_id: int | str, *, scheduled_for: date | None = None) -> Revision:
+    def schedule_new_topic(
+        self, topic_id: int | str, *, scheduled_for: date | None = None
+    ) -> Revision:
         return self.create_first_revision(topic_id, scheduled_for=scheduled_for)
 
     def record_revision(
@@ -186,7 +194,9 @@ class SchedulerService:
             raise ValueError(f"Topic {topic_id} has no active revision to review")
         return self.process_review(revision.id, rating, completed_at=completed_at)
 
-    def reschedule_after_miss(self, revision_id: int | str, *, reschedule_from: date | None = None) -> Revision:
+    def reschedule_after_miss(
+        self, revision_id: int | str, *, reschedule_from: date | None = None
+    ) -> Revision:
         revision = self._require_revision(revision_id)
         if revision.status != "open":
             raise ValueError(f"Revision {revision_id} is not open")
@@ -427,10 +437,14 @@ class SchedulerService:
         return str(setting.value)
 
     def _difficulty_key(self, topic: Topic) -> str:
-        difficulty = topic.difficulty.value if hasattr(topic.difficulty, "value") else topic.difficulty
+        difficulty = (
+            topic.difficulty.value if hasattr(topic.difficulty, "value") else topic.difficulty
+        )
         return str(difficulty or "medium").lower()
 
-    def _next_mastery_score(self, current_score: float | None, rating: ConfidenceRating, overdue_days: int) -> float:
+    def _next_mastery_score(
+        self, current_score: float | None, rating: ConfidenceRating, overdue_days: int
+    ) -> float:
         score = float(current_score or 0.0) + RATING_TO_MASTERY_DELTA[rating] - overdue_days * 1.5
         return round(max(0.0, min(100.0, score)), 1)
 

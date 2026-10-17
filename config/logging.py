@@ -35,4 +35,3 @@ def configure_logging() -> logging.Logger:
     logger.addHandler(console_handler)
     logger.debug("Logging configured")
     return logger
-

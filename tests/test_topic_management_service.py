@@ -20,7 +20,9 @@ def test_subject_service_crud_flow(session) -> None:
         exam_date=date(2026, 6, 1),
         description="STEM core subject",
     )
-    updated = subject_service.update_subject(subject.id, name="Advanced Mathematics", color_tag="#654321")
+    updated = subject_service.update_subject(
+        subject.id, name="Advanced Mathematics", color_tag="#654321"
+    )
     subjects = subject_service.list_subjects()
 
     assert updated.name == "Advanced Mathematics"
@@ -32,10 +34,16 @@ def test_topic_service_auto_schedules_first_revision(session) -> None:
     subject_service, topic_service = _build_services(session, date(2026, 4, 9))
     subject = subject_service.create_subject(name="Physics", exam_date=date(2026, 4, 11))
 
-    topic = topic_service.create_topic(subject_id=subject.id, name="Magnetism", difficulty=DifficultyLevel.HARD)
+    topic = topic_service.create_topic(
+        subject_id=subject.id, name="Magnetism", difficulty=DifficultyLevel.HARD
+    )
     session.commit()
 
-    revisions = session.query(Revision).filter(Revision.topic_id == topic.id, Revision.status == "open").all()
+    revisions = (
+        session.query(Revision)
+        .filter(Revision.topic_id == topic.id, Revision.status == "open")
+        .all()
+    )
     assert len(revisions) == 1
     assert topic.exam_date_override == date(2026, 4, 11)
     assert revisions[0].due_at.date() == date(2026, 4, 9)
@@ -45,9 +53,15 @@ def test_topic_tree_and_leaf_traversal_flatten_in_single_user_schema(session) ->
     subject_service, topic_service = _build_services(session, date(2026, 4, 9))
     subject = subject_service.create_subject(name="Biology")
 
-    root = topic_service.create_topic(subject_id=subject.id, name="Cell Biology", auto_schedule=False)
-    child_a = topic_service.create_topic(subject_id=subject.id, name="Cell Membrane", auto_schedule=False)
-    child_b = topic_service.create_topic(subject_id=subject.id, name="Mitochondria", auto_schedule=False)
+    root = topic_service.create_topic(
+        subject_id=subject.id, name="Cell Biology", auto_schedule=False
+    )
+    child_a = topic_service.create_topic(
+        subject_id=subject.id, name="Cell Membrane", auto_schedule=False
+    )
+    child_b = topic_service.create_topic(
+        subject_id=subject.id, name="Mitochondria", auto_schedule=False
+    )
 
     tree = topic_service.get_topic_tree(subject.id)
     leaves = topic_service.get_leaf_topics(subject.id)
@@ -59,7 +73,9 @@ def test_topic_tree_and_leaf_traversal_flatten_in_single_user_schema(session) ->
 def test_topic_update_and_delete_flow(session) -> None:
     subject_service, topic_service = _build_services(session, date(2026, 4, 9))
     subject = subject_service.create_subject(name="History")
-    topic = topic_service.create_topic(subject_id=subject.id, name="World War I", auto_schedule=False)
+    topic = topic_service.create_topic(
+        subject_id=subject.id, name="World War I", auto_schedule=False
+    )
 
     updated = topic_service.update_topic(
         topic.id,
@@ -80,7 +96,9 @@ def test_topic_update_and_delete_flow(session) -> None:
 def test_topic_archive_status_does_not_overwrite_completion_state(session) -> None:
     subject_service, topic_service = _build_services(session, date(2026, 4, 9))
     subject = subject_service.create_subject(name="Computer Science")
-    topic = topic_service.create_topic(subject_id=subject.id, name="Operating Systems", auto_schedule=False)
+    topic = topic_service.create_topic(
+        subject_id=subject.id, name="Operating Systems", auto_schedule=False
+    )
 
     topic_service.update_topic(topic.id, is_completed=True, is_archived=False)
     session.commit()

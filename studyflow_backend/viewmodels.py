@@ -58,11 +58,15 @@ class StudyFlowReadModel:
         blue = max(0, min(255, round(blue * scale)))
         return f"#{red:02X}{green:02X}{blue:02X}"
 
-    def subject_meta(self, subject: Subject | None = None, *, name: str = "", color: str = "#64748B") -> SubjectMeta:
+    def subject_meta(
+        self, subject: Subject | None = None, *, name: str = "", color: str = "#64748B"
+    ) -> SubjectMeta:
         label = subject.name if subject is not None else name
         shade = subject.color if subject is not None else color
         words = [part[:1] for part in label.split() if part]
-        return SubjectMeta(("".join(words)[:2] or "?").upper(), self._normalized_subject_color(shade))
+        return SubjectMeta(
+            ("".join(words)[:2] or "?").upper(), self._normalized_subject_color(shade)
+        )
 
     def difficulty_label(self, difficulty: Any) -> str:
         value = difficulty.value if hasattr(difficulty, "value") else difficulty
@@ -73,7 +77,9 @@ class StudyFlowReadModel:
 
     def confidence_for_topic(self, topic: Topic) -> int:
         mastery = max(0.0, min(float(topic.mastery_score or 0.0), 100.0))
-        difficulty_penalty = {"easy": 0, "medium": 0.35, "hard": 0.7}.get(str(topic.difficulty).lower(), 0.35)
+        difficulty_penalty = {"easy": 0, "medium": 0.35, "hard": 0.7}.get(
+            str(topic.difficulty).lower(), 0.35
+        )
         score = round((mastery / 25.0) + 1 - difficulty_penalty)
         return max(1, min(score, CONFIDENCE_MAX))
 
@@ -85,12 +91,16 @@ class StudyFlowReadModel:
         if description_lines:
             first_line = description_lines[0].strip()
             if first_line.startswith("[parent:") and first_line.endswith("]"):
-                parent_topic_id = first_line[len("[parent:"):-1].strip() or None
+                parent_topic_id = first_line[len("[parent:") : -1].strip() or None
                 notes = "\n".join(description_lines[1:]).strip()
         meta = self.subject_meta(topic.subject)
         exam_date_value = topic.exam_date_override or topic.subject.exam_date
         exam_date = exam_date_value.isoformat() if exam_date_value else ""
-        completion_date = topic.last_reviewed_at.date().isoformat() if topic.status == "completed" and topic.last_reviewed_at else ""
+        completion_date = (
+            topic.last_reviewed_at.date().isoformat()
+            if topic.status == "completed" and topic.last_reviewed_at
+            else ""
+        )
         difficulty = self.difficulty_label(topic.difficulty)
         return {
             "id": topic.id,
@@ -124,7 +134,8 @@ class StudyFlowReadModel:
             "difficulty": difficulty,
             "scheduled_at": revision.due_at,
             "confidence": self.confidence_for_topic(topic),
-            "duration_minutes": topic.estimated_minutes or DIFFICULTY_TO_DURATION.get(difficulty, 30),
+            "duration_minutes": topic.estimated_minutes
+            or DIFFICULTY_TO_DURATION.get(difficulty, 30),
             "completed_at": revision.completed_at,
             "status": revision.status,
             "completed": revision.status != "open",
@@ -132,7 +143,11 @@ class StudyFlowReadModel:
 
     def all_topics(self) -> list[dict[str, Any]]:
         with self._db_factory() as db:
-            stmt = select(Topic).options(joinedload(Topic.subject)).order_by(Topic.created_at, Topic.name)
+            stmt = (
+                select(Topic)
+                .options(joinedload(Topic.subject))
+                .order_by(Topic.created_at, Topic.name)
+            )
             return [self.serialize_topic(topic) for topic in db.scalars(stmt)]
 
     def all_revisions(self) -> list[Revision]:
@@ -167,7 +182,13 @@ class StudyFlowReadModel:
         overdue_bonus = 0 if days_delta >= 0 else abs(days_delta) * 30
         due_today_bonus = 18 if days_delta == 0 else 0
         upcoming_decay = max(0, 12 - max(days_delta, 0) * 3)
-        return difficulty_weight + confidence_penalty + overdue_bonus + due_today_bonus + upcoming_decay
+        return (
+            difficulty_weight
+            + confidence_penalty
+            + overdue_bonus
+            + due_today_bonus
+            + upcoming_decay
+        )
 
     def dashboard_task_payload(self, task: dict[str, Any]) -> dict[str, Any]:
         payload = self.task_payload(task)
@@ -221,7 +242,11 @@ class StudyFlowReadModel:
             topics = [topic for topic in topics if topic["difficulty"] == curriculum_filter]
         if curriculum_search:
             needle = curriculum_search.lower()
-            topics = [topic for topic in topics if needle in topic["name"].lower() or needle in topic["subject"].lower()]
+            topics = [
+                topic
+                for topic in topics
+                if needle in topic["name"].lower() or needle in topic["subject"].lower()
+            ]
         return topics
 
     def subject_groups(self) -> dict[str, list[dict[str, Any]]]:
@@ -236,7 +261,11 @@ class StudyFlowReadModel:
 
     def average_confidence_pct(self, topics: list[dict[str, Any]] | None = None) -> int:
         items = topics if topics is not None else self.all_topics()
-        return round(sum(topic["confidence"] for topic in items) / (len(items) * CONFIDENCE_MAX) * 100) if items else 0
+        return (
+            round(sum(topic["confidence"] for topic in items) / (len(items) * CONFIDENCE_MAX) * 100)
+            if items
+            else 0
+        )
 
     def weekly_study_minutes(self) -> int:
         return sum(self._study_minutes_provider()[-7:])

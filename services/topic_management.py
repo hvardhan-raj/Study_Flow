@@ -18,7 +18,7 @@ class TopicTreeNode:
     topic_id: int
     name: str
     subject_id: int
-    children: tuple["TopicTreeNode", ...] = field(default_factory=tuple)
+    children: tuple[TopicTreeNode, ...] = field(default_factory=tuple)
 
 
 class SubjectService:
@@ -166,9 +166,16 @@ class TopicService:
         if completion_date is not None:
             topic.target_date = completion_date
         if notes is not None:
-            topic.description = self._encode_metadata(notes, parent_topic_id if parent_topic_id not in (None, "") else self._parent_topic_id(topic.description))
+            topic.description = self._encode_metadata(
+                notes,
+                parent_topic_id
+                if parent_topic_id not in (None, "")
+                else self._parent_topic_id(topic.description),
+            )
         elif parent_topic_id not in (None, ""):
-            topic.description = self._encode_metadata(self._notes_only(topic.description), parent_topic_id)
+            topic.description = self._encode_metadata(
+                self._notes_only(topic.description), parent_topic_id
+            )
         completed_state = topic.status == "completed"
         archived_state = topic.status == "archived"
         if is_completed is not None:
@@ -207,7 +214,9 @@ class TopicService:
         today = self.scheduler._today()
         days_until_exam = (exam_date - today).days
         if days_until_exam <= 0:
-            revision.due_at = revision.due_at.replace(year=today.year, month=today.month, day=today.day)
+            revision.due_at = revision.due_at.replace(
+                year=today.year, month=today.month, day=today.day
+            )
             revision.interval_days = 0.0
             return
 
@@ -236,9 +245,13 @@ class TopicService:
         key = self._difficulty_value(difficulty)
         return {"easy": 15, "medium": 30, "hard": 45}.get(key, 30)
 
-    def _mastery_from_difficulty(self, difficulty: DifficultyLevel | str, supplied: float | None) -> float:
+    def _mastery_from_difficulty(
+        self, difficulty: DifficultyLevel | str, supplied: float | None
+    ) -> float:
         if supplied is not None:
-            return round(max(0.0, min(float(supplied) * 100 if supplied <= 1 else float(supplied), 100.0)), 1)
+            return round(
+                max(0.0, min(float(supplied) * 100 if supplied <= 1 else float(supplied), 100.0)), 1
+            )
         key = self._difficulty_value(difficulty)
         return {"easy": 25.0, "medium": 15.0, "hard": 5.0}.get(key, 15.0)
 
@@ -253,7 +266,7 @@ class TopicService:
             return None
         first_line = description.splitlines()[0].strip()
         if first_line.startswith("[parent:") and first_line.endswith("]"):
-            return first_line[len("[parent:"):-1].strip() or None
+            return first_line[len("[parent:") : -1].strip() or None
         return None
 
     def _notes_only(self, description: str | None) -> str:

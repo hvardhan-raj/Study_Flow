@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import os
 from colorsys import hls_to_rgb
 from datetime import date, datetime, time, timedelta
 from io import StringIO
@@ -38,6 +39,16 @@ from services import (
 )
 from time_utils import ensure_local_timezone, local_now, naive_local_now
 
+from .controllers import (
+    AssistantController,
+    CalendarController,
+    CurriculumController,
+    IntelligenceController,
+    NotificationsController,
+    SessionController,
+    SettingsController,
+    TaskController,
+)
 from .defaults import build_default_notifications, default_alert_settings
 from .ml_engine import LearningMLEngine
 from .models import SubjectMeta
@@ -79,14 +90,34 @@ def seed_defaults(db: Session) -> None:
     subject_service = SubjectService(db)
     topic_service = TopicService(db, scheduler=SchedulerService(db))
     seeds = [
-        ("Mathematics", "#3B82F6", [("Calculus", DifficultyLevel.HARD, 42), ("Linear Algebra", DifficultyLevel.MEDIUM, 64)]),
-        ("Physics", "#10B981", [("Kinematics", DifficultyLevel.MEDIUM, 58), ("Magnetism", DifficultyLevel.HARD, 36)]),
-        ("History", "#F59E0B", [("Roman Empire", DifficultyLevel.MEDIUM, 71), ("World War I", DifficultyLevel.HARD, 47)]),
+        (
+            "Mathematics",
+            "#3B82F6",
+            [
+                ("Calculus", DifficultyLevel.HARD, 42),
+                ("Linear Algebra", DifficultyLevel.MEDIUM, 64),
+            ],
+        ),
+        (
+            "Physics",
+            "#10B981",
+            [("Kinematics", DifficultyLevel.MEDIUM, 58), ("Magnetism", DifficultyLevel.HARD, 36)],
+        ),
+        (
+            "History",
+            "#F59E0B",
+            [
+                ("Roman Empire", DifficultyLevel.MEDIUM, 71),
+                ("World War I", DifficultyLevel.HARD, 47),
+            ],
+        ),
     ]
     for subject_name, color, topics in seeds:
         subject = subject_service.create_subject(name=subject_name, color_tag=color)
         for topic_name, difficulty, progress in topics:
-            topic = topic_service.create_topic(subject_id=subject.id, name=topic_name, difficulty=difficulty)
+            topic = topic_service.create_topic(
+                subject_id=subject.id, name=topic_name, difficulty=difficulty
+            )
             topic.mastery_score = float(progress)
 
 
@@ -94,11 +125,22 @@ class StudyFlowBackend(QObject):
     stateChanged = Signal()
     intelligenceChanged = Signal()
 
-    def __init__(self, store_path: Path | None = None, database_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        store_path: Path | None = None,
+        database_path: Path | None = None,
+        seed_demo: bool | None = None,
+    ) -> None:
         super().__init__()
-        self._store_path = store_path or Path(__file__).resolve().parent.parent / "studyflow_data.json"
-        self._database_path = Path(database_path) if database_path is not None else self._resolve_database_path(self._store_path)
-        self._seed_demo_data = self._should_seed_demo_data(self._store_path)
+        self._store_path = store_path or settings.app_data_dir / "studyflow_data.json"
+        self._database_path = (
+            Path(database_path)
+            if database_path is not None
+            else self._resolve_database_path(self._store_path)
+        )
+        self._seed_demo_data = (
+            seed_demo if seed_demo is not None else self._should_seed_demo_data(self._store_path)
+        )
         self._engine = create_sqlite_engine(database_path=self._database_path)
         self._session_factory = create_session_factory(self._engine)
         init_database(engine_override=self._engine, database_path=self._database_path)
@@ -126,11 +168,142 @@ class StudyFlowBackend(QObject):
         self._ml_engine = LearningMLEngine(
             session_factory=self._session_factory,
             today_provider=lambda: self._today,
-            model_path=Path(__file__).resolve().parent.parent / "models" / "learning_model.pkl",
+            model_path=settings.learning_model_path,
+            seed_model_path=settings.seed_models_dir / "learning_model.joblib",
             on_update=self._queue_intelligence_refresh,
         )
         self._ml_engine.start()
+
+        # Wire modular screen controllers
+        self._assistant_controller = AssistantController(
+            llm_service=self._llm_service,
+            context_provider=self._assistant_context,
+            due_topic_provider=lambda: (
+                self._tasks_for_bucket("due_today")[0]["name"]
+                if self._tasks_for_bucket("due_today")
+                else "my next due topic"
+            ),
+            save_callback=self._save,
+            parent=self,
+        )
+        self._assistant_controller.initialize_state(self._assistant_messages)
+        self._assistant_controller.changed.connect(self._emit)
+
+        self._notifications_controller = NotificationsController(
+            desktop_notifier=self._desktop_notifier,
+            save_callback=self._save,
+            today_provider=lambda: self._today,
+            parent=self,
+        )
+        self._notifications_controller.initialize_state(self._notifications)
+        self._notifications_controller.changed.connect(self._emit)
+
+        self._settings_controller = SettingsController(
+            db_factory=self._db,
+            today_provider=lambda: self._today,
+            save_callback=self._save,
+            toast_callback=self._show_toast,
+            on_reminders_changed=self._refresh_reminder_notifications,
+            parent=self,
+        )
+        self._settings_controller.initialize_state(
+            self._settings,
+            self._alert_settings,
+            self._reminder_preferences,
+        )
+        self._settings_controller.changed.connect(self._emit)
+
+        self._curriculum_controller = CurriculumController(
+            db_factory=self._db,
+            view_model=self._view_model,
+            today_provider=lambda: self._today,
+            on_intelligence_refresh=self._request_intelligence_refresh,
+            toast_callback=self._show_toast,
+            parent=self,
+        )
+        self._curriculum_controller.changed.connect(self._emit)
+
+        self._task_controller = TaskController(
+            db_factory=self._db,
+            view_model=self._view_model,
+            today_provider=lambda: self._today,
+            on_revision_completed=self._mark_revision_completed_for_intelligence,
+            on_minutes_recorded=self._record_study_minutes,
+            toast_callback=self._show_toast,
+            parent=self,
+        )
+        self._task_controller.changed.connect(self._emit)
+
+        self._session_controller = SessionController(
+            db_factory=self._db,
+            save_callback=self._save,
+            toast_callback=self._show_toast,
+            parent=self,
+        )
+        self._session_controller.initialize_state(
+            self._active_session,
+            self._study_minutes,
+        )
+        self._session_controller.changed.connect(self._emit)
+
+        self._calendar_controller = CalendarController(
+            today_provider=lambda: self._today,
+            tasks_provider=lambda: self._tasks,
+            task_payload_provider=self._task_payload,
+            on_notification_added=self._add_notification,
+            parent=self,
+        )
+        self._calendar_controller.changed.connect(self._emit)
+
+        self._intelligence_controller = IntelligenceController(
+            ml_engine=self._ml_engine,
+            on_notification_added=self._add_notification,
+            parent=self,
+        )
+        self._intelligence_controller.changed.connect(self._emit)
+
         self._refresh_reminder_notifications()
+
+    @Property(QObject, constant=True)
+    def assistant(self) -> AssistantController:
+        return self._assistant_controller
+
+    @Property(QObject, constant=True)
+    def notificationsController(self) -> NotificationsController:
+        return self._notifications_controller
+
+    @Property(QObject, constant=True)
+    def settingsController(self) -> SettingsController:
+        return self._settings_controller
+
+    @Property(QObject, constant=True)
+    def curriculumController(self) -> CurriculumController:
+        return self._curriculum_controller
+
+    @Property(QObject, constant=True)
+    def calendarController(self) -> CalendarController:
+        return self._calendar_controller
+
+    @Property(QObject, constant=True)
+    def intelligenceController(self) -> IntelligenceController:
+        return self._intelligence_controller
+
+    @Property(QObject, constant=True)
+    def sessionController(self) -> SessionController:
+        return self._session_controller
+
+    @Property(QObject, constant=True)
+    def taskController(self) -> TaskController:
+        return self._task_controller
+
+    @Property(bool, notify=stateChanged)
+    def assistantBusy(self) -> bool:
+        return self._assistant_controller.assistantBusy
+
+    def _record_study_minutes(self, minutes: int) -> None:
+        self._study_minutes.append(max(1, minutes))
+        self._study_minutes = self._study_minutes[-14:]
+        self._session_controller.record_minutes(minutes)
 
     def _db(self):
         return session_scope(self._session_factory)
@@ -174,15 +347,27 @@ class StudyFlowBackend(QObject):
         return settings.database_path
 
     def _should_seed_demo_data(self, store_path: Path) -> bool:
+        import sys
+
+        if os.getenv("STUDYFLOW_DEMO", "").lower() in ("1", "true", "yes"):
+            return True
+        if "--demo" in sys.argv:
+            return True
         return store_path.name.endswith("_state.json")
 
     def _ensure_database_ready(self) -> None:
         with self._db() as db:
-            leaked_topics = list(db.scalars(select(Topic).where(Topic.name.like("Dashboard Upcoming Seed%"))))
+            leaked_topics = list(
+                db.scalars(select(Topic).where(Topic.name.like("Dashboard Upcoming Seed%")))
+            )
             if leaked_topics:
                 for topic in leaked_topics:
                     db.delete(topic)
-                logger.warning("Removed %s leaked dashboard test topic(s) from %s", len(leaked_topics), self._database_path)
+                logger.warning(
+                    "Removed %s leaked dashboard test topic(s) from %s",
+                    len(leaked_topics),
+                    self._database_path,
+                )
             if self._seed_demo_data:
                 seed_defaults(db)
 
@@ -190,7 +375,9 @@ class StudyFlowBackend(QObject):
         try:
             state = load_state(self._store_path)
         except Exception:
-            logger.exception("Failed to initialize persisted StudyFlow state from %s", self._store_path)
+            logger.exception(
+                "Failed to initialize persisted StudyFlow state from %s", self._store_path
+            )
             state = {
                 "settings": {},
                 "alert_settings": {},
@@ -203,15 +390,21 @@ class StudyFlowBackend(QObject):
 
         self._settings = self._normalize_settings(state.get("settings", {}))
         self._alert_settings = self._normalize_alert_settings(state.get("alert_settings", {}))
-        self._reminder_preferences = self._normalize_reminder_preferences(state.get("reminder_preferences", {}))
+        self._reminder_preferences = self._normalize_reminder_preferences(
+            state.get("reminder_preferences", {})
+        )
         assistant_messages = state.get("assistant_messages") or self._default_assistant_messages()
-        self._assistant_messages = [self._normalize_assistant_message(message) for message in assistant_messages]
+        self._assistant_messages = [
+            self._normalize_assistant_message(message) for message in assistant_messages
+        ]
         self._suggestion_dismissed = bool(state.get("suggestion_dismissed", False))
         self._study_minutes = list(state.get("study_minutes", []))
         self._active_session = self._normalize_active_session(state.get("active_session"))
         self._notifications = [
             self._normalize_notification(notification, index)
-            for index, notification in enumerate(state.get("notifications", build_default_notifications()))
+            for index, notification in enumerate(
+                state.get("notifications", build_default_notifications())
+            )
         ]
         self._toasts: list[dict[str, Any]] = []
         self._projection_cache: dict[str, Any] = {}
@@ -240,7 +433,9 @@ class StudyFlowBackend(QObject):
         self.intelligenceChanged.emit()
 
     def _queue_intelligence_refresh(self) -> None:
-        QMetaObject.invokeMethod(self, "_emit_intelligence_changed", Qt.ConnectionType.QueuedConnection)
+        QMetaObject.invokeMethod(
+            self, "_emit_intelligence_changed", Qt.ConnectionType.QueuedConnection
+        )
 
     def _request_intelligence_refresh(self, *, train: bool = False) -> None:
         self._ml_engine.request_refresh(train=train)
@@ -254,7 +449,9 @@ class StudyFlowBackend(QObject):
 
     @Slot()
     def refreshIntelligence(self) -> None:
-        self._request_intelligence_refresh(train=not self._ml_engine.get_intelligence_dashboard().get("model_ready", False))
+        self._request_intelligence_refresh(
+            train=not self._ml_engine.get_intelligence_dashboard().get("model_ready", False)
+        )
 
     @property
     def _today(self) -> date:
@@ -307,11 +504,16 @@ class StudyFlowBackend(QObject):
             payload["minimum_due_for_alert"] = max(1, int(payload["minimum_due_for_alert"]))
         except (TypeError, ValueError):
             payload["minimum_due_for_alert"] = 1
-        if not isinstance(payload["notification_time"], str) or ":" not in payload["notification_time"]:
+        if (
+            not isinstance(payload["notification_time"], str)
+            or ":" not in payload["notification_time"]
+        ):
             payload["notification_time"] = "08:00"
         return payload
 
-    def _normalize_active_session(self, active_session: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _normalize_active_session(
+        self, active_session: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         if not isinstance(active_session, dict):
             return None
         session_id = active_session.get("id")
@@ -365,7 +567,9 @@ class StudyFlowBackend(QObject):
         }
 
     def _notification_timestamp(self, index: int) -> datetime:
-        return datetime.combine(self._today, time(12, 0), tzinfo=local_now().tzinfo) - timedelta(minutes=index)
+        return datetime.combine(self._today, time(12, 0), tzinfo=local_now().tzinfo) - timedelta(
+            minutes=index
+        )
 
     def _relative_time_label(self, timestamp: datetime) -> str:
         delta = local_now() - ensure_local_timezone(timestamp)
@@ -378,11 +582,17 @@ class StudyFlowBackend(QObject):
             return f"{minutes}m ago"
         return f"{minutes // 60}h ago"
 
-    def _normalize_notification(self, notification: dict[str, Any], index: int = 0) -> dict[str, Any]:
+    def _normalize_notification(
+        self, notification: dict[str, Any], index: int = 0
+    ) -> dict[str, Any]:
         item = dict(notification) if isinstance(notification, dict) else {}
         timestamp = item.get("timestamp")
         try:
-            parsed_timestamp = datetime.fromisoformat(timestamp) if isinstance(timestamp, str) else self._notification_timestamp(index)
+            parsed_timestamp = (
+                datetime.fromisoformat(timestamp)
+                if isinstance(timestamp, str)
+                else self._notification_timestamp(index)
+            )
         except ValueError:
             parsed_timestamp = self._notification_timestamp(index)
         item.setdefault("id", f"notif-{index + 1}")
@@ -437,7 +647,7 @@ class StudyFlowBackend(QObject):
         color = value.strip().lstrip("#")
         if len(color) != 6:
             return (59, 130, 246)
-        return tuple(int(color[index:index + 2], 16) for index in range(0, 6, 2))
+        return tuple(int(color[index : index + 2], 16) for index in range(0, 6, 2))
 
     def _subject_color_distance(self, left: str, right: str) -> float:
         left_rgb = self._hex_to_rgb(left)
@@ -448,7 +658,9 @@ class StudyFlowBackend(QObject):
         with self._db() as db:
             existing = [
                 str(color)
-                for color in db.scalars(select(Subject.color).where(func.coalesce(Subject.archived, 0) == 0))
+                for color in db.scalars(
+                    select(Subject.color).where(func.coalesce(Subject.archived, 0) == 0)
+                )
                 if color
             ]
         if not existing:
@@ -456,13 +668,21 @@ class StudyFlowBackend(QObject):
         for step in range(1, 360):
             hue = ((step * 137.508) % 360) / 360.0
             red, green, blue = hls_to_rgb(hue, 0.80, 0.52)
-            candidate = "#{:02X}{:02X}{:02X}".format(round(red * 255), round(green * 255), round(blue * 255))
+            candidate = f"#{round(red * 255):02X}{round(green * 255):02X}{round(blue * 255):02X}"
             if all(self._subject_color_distance(candidate, current) >= 28 for current in existing):
                 return candidate
         return "#A7C5FF"
 
     def _default_assistant_messages(self) -> list[dict[str, Any]]:
-        return [self._normalize_assistant_message({"role": "assistant", "text": "I can help you plan today’s reviews.", "source": "system"})]
+        return [
+            self._normalize_assistant_message(
+                {
+                    "role": "assistant",
+                    "text": "I can help you plan today’s reviews.",
+                    "source": "system",
+                }
+            )
+        ]
 
     def _normalize_assistant_message(self, message: dict[str, Any]) -> dict[str, Any]:
         item = dict(message)
@@ -490,7 +710,9 @@ class StudyFlowBackend(QObject):
         if dataset_path.exists():
             train_model(load_training_examples(dataset_path), service=self._nlp_service)
 
-    def _subject_meta(self, subject: Subject | None = None, *, name: str = "", color: str = "#64748B") -> SubjectMeta:
+    def _subject_meta(
+        self, subject: Subject | None = None, *, name: str = "", color: str = "#64748B"
+    ) -> SubjectMeta:
         return self._view_model.subject_meta(subject, name=name, color=color)
 
     def _difficulty_label(self, difficulty: DifficultyLevel) -> str:
@@ -510,6 +732,7 @@ class StudyFlowBackend(QObject):
 
     def _serialize_task(self, revision: Revision) -> dict[str, Any]:
         return self._view_model.serialize_task(revision)
+
     def _all_topics(self) -> list[dict[str, Any]]:
         return self._view_model.all_topics()
 
@@ -556,7 +779,13 @@ class StudyFlowBackend(QObject):
         overdue_bonus = 0 if days_delta >= 0 else abs(days_delta) * 30
         due_today_bonus = 18 if days_delta == 0 else 0
         upcoming_decay = max(0, 12 - max(days_delta, 0) * 3)
-        return difficulty_weight + confidence_penalty + overdue_bonus + due_today_bonus + upcoming_decay
+        return (
+            difficulty_weight
+            + confidence_penalty
+            + overdue_bonus
+            + due_today_bonus
+            + upcoming_decay
+        )
 
     def _dashboard_task_payload(self, task: dict[str, Any]) -> dict[str, Any]:
         return self._view_model.dashboard_task_payload(task)
@@ -587,8 +816,14 @@ class StudyFlowBackend(QObject):
     def _study_trend_values(self, days: int = 14) -> list[int]:
         return self._view_model.study_trend_values(days)
 
-    def _topic_tree_node(self, topic: dict[str, Any], lookup: dict[str, dict[str, Any]]) -> dict[str, Any]:
-        children = [self._topic_tree_node(candidate, lookup) for candidate in lookup.values() if candidate.get("parent_topic_id") == topic["id"]]
+    def _topic_tree_node(
+        self, topic: dict[str, Any], lookup: dict[str, dict[str, Any]]
+    ) -> dict[str, Any]:
+        children = [
+            self._topic_tree_node(candidate, lookup)
+            for candidate in lookup.values()
+            if candidate.get("parent_topic_id") == topic["id"]
+        ]
         children.sort(key=lambda item: item["name"])
         return {
             "id": topic["id"],
@@ -606,8 +841,19 @@ class StudyFlowBackend(QObject):
             "children": children,
         }
 
-    def _upsert_notification(self, notification_id: str, title: str, body: str, icon: str, color: str, *, read: bool = False) -> None:
-        existing = next((item for item in self._notifications if item["id"] == notification_id), None)
+    def _upsert_notification(
+        self,
+        notification_id: str,
+        title: str,
+        body: str,
+        icon: str,
+        color: str,
+        *,
+        read: bool = False,
+    ) -> None:
+        existing = next(
+            (item for item in self._notifications if item["id"] == notification_id), None
+        )
         payload = self._normalize_notification(
             {
                 "id": notification_id,
@@ -625,7 +871,12 @@ class StudyFlowBackend(QObject):
             existing.update(payload)
 
     def _add_notification(self, title: str, body: str, icon: str, color: str) -> None:
-        self._notifications.insert(0, self._normalize_notification({"title": title, "body": body, "icon": icon, "color": color}))
+        self._notifications.insert(
+            0,
+            self._normalize_notification(
+                {"title": title, "body": body, "icon": icon, "color": color}
+            ),
+        )
         self._notifications = self._notifications[:50]
         self._save()
         self._emit()
@@ -648,7 +899,9 @@ class StudyFlowBackend(QObject):
         read: bool = False,
         desktop: bool = False,
     ) -> bool:
-        existing = next((item for item in self._notifications if item["id"] == notification_id), None)
+        existing = next(
+            (item for item in self._notifications if item["id"] == notification_id), None
+        )
         self._upsert_notification(notification_id, title, body, icon, color, read=read)
         if existing is None:
             self._notifications = self._notifications[:50]
@@ -715,7 +968,9 @@ class StudyFlowBackend(QObject):
             )
         return created
 
-    def _assistant_context(self, recent_messages: list[dict[str, Any]] | None = None) -> AssistantContext:
+    def _assistant_context(
+        self, recent_messages: list[dict[str, Any]] | None = None
+    ) -> AssistantContext:
         return AssistantContext(
             due_today=self._tasks_for_bucket("due_today"),
             overdue=self._tasks_for_bucket("overdue"),
@@ -724,22 +979,74 @@ class StudyFlowBackend(QObject):
             digest=self.todayDigest,
             recent_messages=recent_messages or [],
         )
+
     @Property("QVariantList", notify=stateChanged)
     def dashboardStats(self) -> list[dict[str, Any]]:
         tasks = self._tasks
         due_today = len(self._tasks_for_bucket("due_today"))
         overdue = len(self._tasks_for_bucket("overdue"))
-        scheduled_today = len([task for task in tasks if task["scheduled_at"].date() == self._today])
-        completed_today = len([task for task in tasks if task["completed"] and task["scheduled_at"].date() == self._today])
+        scheduled_today = len(
+            [task for task in tasks if task["scheduled_at"].date() == self._today]
+        )
+        completed_today = len(
+            [
+                task
+                for task in tasks
+                if task["completed"] and task["scheduled_at"].date() == self._today
+            ]
+        )
         completion_pct = round((completed_today / scheduled_today) * 100) if scheduled_today else 0
         completion_rate = max(0, min(100, completion_pct))
-        avg_conf = round(sum(topic["confidence"] for topic in self._topics) / len(self._topics), 1) if self._topics else 0.0
-        completion_subtitle = f"{completed_today}/{scheduled_today} sessions completed" if scheduled_today else "No sessions scheduled"
+        avg_conf = (
+            round(sum(topic["confidence"] for topic in self._topics) / len(self._topics), 1)
+            if self._topics
+            else 0.0
+        )
+        completion_subtitle = (
+            f"{completed_today}/{scheduled_today} sessions completed"
+            if scheduled_today
+            else "No sessions scheduled"
+        )
         return [
-            {"title": "OVERDUE", "value": str(overdue), "subtitle": "Need attention", "trend": "High" if overdue else "Clear", "trendUp": overdue == 0, "valueColor": "#EF4444" if overdue else "#1A2332", "accentColor": "#EF4444"},
-            {"title": "DUE TODAY", "value": str(due_today), "subtitle": "Remaining reviews", "trend": f"{completed_today} done", "trendUp": completed_today > 0 or due_today == 0, "valueColor": "#1A2332", "accentColor": "#3B82F6"},
-            {"title": "COMPLETION", "value": f"{completion_rate}%", "subtitle": completion_subtitle, "trend": "Complete" if completion_rate == 100 and scheduled_today else ("On track" if completion_rate >= 50 else "Warm up"), "trendUp": completion_rate >= 50, "valueColor": "#1A2332", "accentColor": "#10B981", "progressValue": completion_rate},
-            {"title": "AVG CONFIDENCE", "value": f"{avg_conf:.1f}/5", "subtitle": "Across topics", "trend": "Steady recall", "trendUp": avg_conf >= 3.5, "valueColor": "#1A2332", "accentColor": "#8B5CF6"},
+            {
+                "title": "OVERDUE",
+                "value": str(overdue),
+                "subtitle": "Need attention",
+                "trend": "High" if overdue else "Clear",
+                "trendUp": overdue == 0,
+                "valueColor": "#EF4444" if overdue else "#1A2332",
+                "accentColor": "#EF4444",
+            },
+            {
+                "title": "DUE TODAY",
+                "value": str(due_today),
+                "subtitle": "Remaining reviews",
+                "trend": f"{completed_today} done",
+                "trendUp": completed_today > 0 or due_today == 0,
+                "valueColor": "#1A2332",
+                "accentColor": "#3B82F6",
+            },
+            {
+                "title": "COMPLETION",
+                "value": f"{completion_rate}%",
+                "subtitle": completion_subtitle,
+                "trend": "Complete"
+                if completion_rate == 100 and scheduled_today
+                else ("On track" if completion_rate >= 50 else "Warm up"),
+                "trendUp": completion_rate >= 50,
+                "valueColor": "#1A2332",
+                "accentColor": "#10B981",
+                "progressValue": completion_rate,
+            },
+            {
+                "title": "AVG CONFIDENCE",
+                "value": f"{avg_conf:.1f}/5",
+                "subtitle": "Across topics",
+                "trend": "Steady recall",
+                "trendUp": avg_conf >= 3.5,
+                "valueColor": "#1A2332",
+                "accentColor": "#8B5CF6",
+            },
         ]
 
     @Property("QVariantMap", notify=stateChanged)
@@ -747,8 +1054,16 @@ class StudyFlowBackend(QObject):
         overdue = len(self._tasks_for_bucket("overdue"))
         due_today = len(self._tasks_for_bucket("due_today"))
         if overdue:
-            return {"emoji": "!", "headline": f"{overdue} overdue review{'s' if overdue != 1 else ''} need attention first", "detail": "Clear the oldest cards before starting new material."}
-        return {"emoji": "*", "headline": f"{due_today} review{'s' if due_today != 1 else ''} queued for today", "detail": "Stay in rhythm with short, consistent revision sessions."}
+            return {
+                "emoji": "!",
+                "headline": f"{overdue} overdue review{'s' if overdue != 1 else ''} need attention first",
+                "detail": "Clear the oldest cards before starting new material.",
+            }
+        return {
+            "emoji": "*",
+            "headline": f"{due_today} review{'s' if due_today != 1 else ''} queued for today",
+            "detail": "Stay in rhythm with short, consistent revision sessions.",
+        }
 
     @Property("QVariantMap", notify=stateChanged)
     def activeSession(self) -> dict[str, Any]:
@@ -761,14 +1076,38 @@ class StudyFlowBackend(QObject):
     @Property("QVariantMap", notify=stateChanged)
     def dashboardFocus(self) -> dict[str, Any]:
         due_items = self._tasks_for_bucket("due_today")
-        return {"score": self._average_confidence_pct(), "nextRevision": due_items[0]["name"] if due_items else "No due topics"}
+        return {
+            "score": self._average_confidence_pct(),
+            "nextRevision": due_items[0]["name"] if due_items else "No due topics",
+        }
 
     @Property("QVariantList", notify=stateChanged)
     def dashboardColumns(self) -> list[dict[str, Any]]:
         return [
-            {"key": "overdue", "title": "Overdue", "subtitle": "Start here first", "accentColor": "#EF4444", "count": len(self._tasks_for_bucket("overdue")), "items": self._tasks_for_bucket("overdue")},
-            {"key": "due_today", "title": "Due Today", "subtitle": "Today's core revision flow", "accentColor": "#3B82F6", "count": len(self._tasks_for_bucket("due_today")), "items": self._tasks_for_bucket("due_today")},
-            {"key": "upcoming", "title": "Upcoming", "subtitle": "Planned next reviews", "accentColor": "#64748B", "count": len(self._tasks_for_bucket("upcoming")), "items": self._tasks_for_bucket("upcoming")},
+            {
+                "key": "overdue",
+                "title": "Overdue",
+                "subtitle": "Start here first",
+                "accentColor": "#EF4444",
+                "count": len(self._tasks_for_bucket("overdue")),
+                "items": self._tasks_for_bucket("overdue"),
+            },
+            {
+                "key": "due_today",
+                "title": "Due Today",
+                "subtitle": "Today's core revision flow",
+                "accentColor": "#3B82F6",
+                "count": len(self._tasks_for_bucket("due_today")),
+                "items": self._tasks_for_bucket("due_today"),
+            },
+            {
+                "key": "upcoming",
+                "title": "Upcoming",
+                "subtitle": "Planned next reviews",
+                "accentColor": "#64748B",
+                "count": len(self._tasks_for_bucket("upcoming")),
+                "items": self._tasks_for_bucket("upcoming"),
+            },
         ]
 
     @Property("QVariantList", notify=stateChanged)
@@ -778,13 +1117,43 @@ class StudyFlowBackend(QObject):
             tasks = [task for task in tasks if not task["completed"]]
         elif self._task_filter != "all":
             tasks = [task for task in tasks if self._task_bucket(task) == self._task_filter]
-        tasks.sort(key=lambda task: (task["completed"], -self._compute_urgency_score(task), task["scheduled_at"], task["topic"].lower()))
+        tasks.sort(
+            key=lambda task: (
+                task["completed"],
+                -self._compute_urgency_score(task),
+                task["scheduled_at"],
+                task["topic"].lower(),
+            )
+        )
         return [self._task_payload(task) for task in tasks]
 
     @Property("QVariantList", notify=stateChanged)
     def taskFilters(self) -> list[dict[str, Any]]:
-        keys = [("all", "All"), ("pending", "Pending"), ("overdue", "Overdue"), ("due_today", "Due Today"), ("upcoming", "Upcoming"), ("completed", "Completed")]
-        return [{"key": key, "label": label, "active": self._task_filter == key, "count": len([task for task in self._tasks if key == "all" or (key == "pending" and not task["completed"]) or (key not in {"all", "pending"} and self._task_bucket(task) == key)])} for key, label in keys]
+        keys = [
+            ("all", "All"),
+            ("pending", "Pending"),
+            ("overdue", "Overdue"),
+            ("due_today", "Due Today"),
+            ("upcoming", "Upcoming"),
+            ("completed", "Completed"),
+        ]
+        return [
+            {
+                "key": key,
+                "label": label,
+                "active": self._task_filter == key,
+                "count": len(
+                    [
+                        task
+                        for task in self._tasks
+                        if key == "all"
+                        or (key == "pending" and not task["completed"])
+                        or (key not in {"all", "pending"} and self._task_bucket(task) == key)
+                    ]
+                ),
+            }
+            for key, label in keys
+        ]
 
     @Property(str, notify=stateChanged)
     def curriculumDifficulty(self) -> str:
@@ -796,7 +1165,11 @@ class StudyFlowBackend(QObject):
 
     def _curriculum_subject_records(self) -> list[dict[str, Any]]:
         with self._db() as db:
-            stmt = select(Subject).where(func.coalesce(Subject.archived, 0) == 0).order_by(Subject.name)
+            stmt = (
+                select(Subject)
+                .where(func.coalesce(Subject.archived, 0) == 0)
+                .order_by(Subject.name)
+            )
             subjects = list(db.scalars(stmt))
 
         filtered_topics = self._filtered_topics()
@@ -814,14 +1187,16 @@ class StudyFlowBackend(QObject):
             if not subject_topics and not (show_empty_subjects and (not needle or subject_match)):
                 continue
             meta = self._subject_meta(subject, name=subject.name, color=subject.color)
-            rows.append({
-                "subjectId": subject_id,
-                "subjectName": subject.name,
-                "iconText": meta.icon,
-                "accentColor": meta.color,
-                "topicCount": len(subject_topics),
-                "topics": subject_topics,
-            })
+            rows.append(
+                {
+                    "subjectId": subject_id,
+                    "subjectName": subject.name,
+                    "iconText": meta.icon,
+                    "accentColor": meta.color,
+                    "topicCount": len(subject_topics),
+                    "topics": subject_topics,
+                }
+            )
         return rows
 
     @Property("QVariantList", notify=stateChanged)
@@ -844,11 +1219,23 @@ class StudyFlowBackend(QObject):
         avg = self._average_progress(filtered_topics)
         completed = len([topic for topic in filtered_topics if topic["isCompleted"]])
         subject_count = len({topic["subjectId"] for topic in filtered_topics})
-        return {"total_topics": total, "avg_progress": avg, "stats": [{"label": "Subjects", "value": str(subject_count), "color": "#3B82F6"}, {"label": "Topics", "value": str(total), "color": "#10B981"}, {"label": "Completed", "value": str(completed), "color": "#F59E0B"}, {"label": "Avg Progress", "value": f"{avg:.0f}%", "color": "#8B5CF6"}]}
+        return {
+            "total_topics": total,
+            "avg_progress": avg,
+            "stats": [
+                {"label": "Subjects", "value": str(subject_count), "color": "#3B82F6"},
+                {"label": "Topics", "value": str(total), "color": "#10B981"},
+                {"label": "Completed", "value": str(completed), "color": "#F59E0B"},
+                {"label": "Avg Progress", "value": f"{avg:.0f}%", "color": "#8B5CF6"},
+            ],
+        }
 
     @Property("QVariantList", notify=stateChanged)
     def curriculumSubjectOptions(self) -> list[dict[str, Any]]:
-        return [{"id": subject["subjectId"], "name": subject["subjectName"]} for subject in self._curriculum_subject_records()]
+        return [
+            {"id": subject["subjectId"], "name": subject["subjectName"]}
+            for subject in self._curriculum_subject_records()
+        ]
 
     @Property("QVariantList", notify=stateChanged)
     def weekCompletion(self) -> list[dict[str, Any]]:
@@ -863,7 +1250,16 @@ class StudyFlowBackend(QObject):
             day_tasks = [task for task in self._tasks if task["scheduled_at"].date() == day]
             completed = len([task for task in day_tasks if task["completed"]])
             scheduled = len(day_tasks)
-            rows.append({"day": day.strftime("%a"), "date": day.strftime("%d"), "completed": completed, "scheduled": scheduled, "remaining": max(0, scheduled - completed), "isToday": day == today})
+            rows.append(
+                {
+                    "day": day.strftime("%a"),
+                    "date": day.strftime("%d"),
+                    "completed": completed,
+                    "scheduled": scheduled,
+                    "remaining": max(0, scheduled - completed),
+                    "isToday": day == today,
+                }
+            )
         self._projection_cache["week_completion"] = rows
         return rows
 
@@ -881,14 +1277,16 @@ class StudyFlowBackend(QObject):
             completed = len([task for task in day_tasks if task["completed"]])
             scheduled = len(day_tasks)
             score = round((completed / scheduled) * 100) if scheduled else 0
-            rows.append({
-                "day": day.strftime("%a"),
-                "date": day.strftime("%d"),
-                "value": score,
-                "completed": completed,
-                "scheduled": scheduled,
-                "isToday": day == today,
-            })
+            rows.append(
+                {
+                    "day": day.strftime("%a"),
+                    "date": day.strftime("%d"),
+                    "value": score,
+                    "completed": completed,
+                    "scheduled": scheduled,
+                    "isToday": day == today,
+                }
+            )
 
         self._projection_cache["retention_trend"] = rows
         return rows
@@ -896,6 +1294,7 @@ class StudyFlowBackend(QObject):
     @Property("QVariantList", notify=stateChanged)
     def calendarCells(self) -> list[dict[str, Any]]:
         import calendar
+
         cache_key = f"calendar_cells:{self._calendar_view_date.isoformat()}:{self._selected_date.isoformat()}"
         cached = self._projection_cache.get(cache_key)
         if cached is not None:
@@ -903,7 +1302,9 @@ class StudyFlowBackend(QObject):
 
         cal = calendar.Calendar(firstweekday=0)
         cells = []
-        for week in cal.monthdatescalendar(self._calendar_view_date.year, self._calendar_view_date.month):
+        for week in cal.monthdatescalendar(
+            self._calendar_view_date.year, self._calendar_view_date.month
+        ):
             for day in week:
                 day_tasks = [task for task in self._tasks if task["scheduled_at"].date() == day]
                 open_tasks = [task for task in day_tasks if not task["completed"]]
@@ -915,23 +1316,33 @@ class StudyFlowBackend(QObject):
                 status = "idle"
                 if any(task["completed"] for task in day_tasks):
                     status = "completed"
-                if any(task["scheduled_at"].date() < self._today and not task["completed"] for task in day_tasks):
+                if any(
+                    task["scheduled_at"].date() < self._today and not task["completed"]
+                    for task in day_tasks
+                ):
                     status = "overdue"
-                elif any(task["scheduled_at"].date() == self._today and not task["completed"] for task in day_tasks):
+                elif any(
+                    task["scheduled_at"].date() == self._today and not task["completed"]
+                    for task in day_tasks
+                ):
                     status = "due_today"
                 elif open_tasks:
                     status = "upcoming"
-                cells.append({
-                    "dayNum": str(day.day) if day.month == self._calendar_view_date.month else "",
-                    "isValid": day.month == self._calendar_view_date.month,
-                    "isToday": day == self._today,
-                    "isSelected": day == self._selected_date,
-                    "taskCount": len(open_tasks),
-                    "dateStr": day.isoformat(),
-                    "status": status,
-                    "indicatorColors": indicator_colors[:4],
-                    "statusColor": indicator_colors[0] if indicator_colors else "#CBD5E1",
-                })
+                cells.append(
+                    {
+                        "dayNum": str(day.day)
+                        if day.month == self._calendar_view_date.month
+                        else "",
+                        "isValid": day.month == self._calendar_view_date.month,
+                        "isToday": day == self._today,
+                        "isSelected": day == self._selected_date,
+                        "taskCount": len(open_tasks),
+                        "dateStr": day.isoformat(),
+                        "status": status,
+                        "indicatorColors": indicator_colors[:4],
+                        "statusColor": indicator_colors[0] if indicator_colors else "#CBD5E1",
+                    }
+                )
         cells = cells[:42]
         self._projection_cache[cache_key] = cells
         return cells
@@ -965,7 +1376,23 @@ class StudyFlowBackend(QObject):
             return cached
         tasks = [task for task in self._tasks if task["scheduled_at"].date() == self._selected_date]
         tasks.sort(key=lambda item: item["scheduled_at"])
-        rows = [{"id": task["id"], "topic": task["topic"], "name": task["topic"], "subject": task["subject"], "duration": task["duration_minutes"], "time": task["scheduled_at"].strftime("%H:%M"), "durationText": f"{task['duration_minutes']} min", "color": self._task_payload(task)["subjectColor"], "subjectColor": self._task_payload(task)["subjectColor"], "status": self._task_payload(task)["status"], "statusColor": self._task_payload(task)["statusColor"], "completed": task["completed"]} for task in tasks]
+        rows = [
+            {
+                "id": task["id"],
+                "topic": task["topic"],
+                "name": task["topic"],
+                "subject": task["subject"],
+                "duration": task["duration_minutes"],
+                "time": task["scheduled_at"].strftime("%H:%M"),
+                "durationText": f"{task['duration_minutes']} min",
+                "color": self._task_payload(task)["subjectColor"],
+                "subjectColor": self._task_payload(task)["subjectColor"],
+                "status": self._task_payload(task)["status"],
+                "statusColor": self._task_payload(task)["statusColor"],
+                "completed": task["completed"],
+            }
+            for task in tasks
+        ]
         self._projection_cache[cache_key] = rows
         return rows
 
@@ -981,15 +1408,30 @@ class StudyFlowBackend(QObject):
         rows = self.weekCompletion
         completed = sum(row["completed"] for row in rows)
         scheduled = sum(row["scheduled"] for row in rows)
-        cached = {"completed": completed, "remaining": sum(row["remaining"] for row in rows), "missed": len(self._tasks_for_bucket("overdue")), "score": round((completed / scheduled) * 100) if scheduled else 0, "scheduled": scheduled}
+        cached = {
+            "completed": completed,
+            "remaining": sum(row["remaining"] for row in rows),
+            "missed": len(self._tasks_for_bucket("overdue")),
+            "score": round((completed / scheduled) * 100) if scheduled else 0,
+            "scheduled": scheduled,
+        }
         self._projection_cache["revision_week_summary"] = cached
         return cached
+
     @Property("QVariantList", notify=stateChanged)
     def subjectConfidence(self) -> list[dict[str, Any]]:
         rows = []
         for subject_name, topics in self._subject_groups().items():
             meta = self._subject_meta(name=subject_name, color=topics[0]["subjectMeta"]["color"])
-            rows.append({"subject": subject_name, "pct": self._average_confidence_pct(topics), "progress": self._average_progress(topics), "topicCount": len(topics), "color": meta.color})
+            rows.append(
+                {
+                    "subject": subject_name,
+                    "pct": self._average_confidence_pct(topics),
+                    "progress": self._average_progress(topics),
+                    "topicCount": len(topics),
+                    "color": meta.color,
+                }
+            )
         rows.sort(key=lambda row: (-row["pct"], row["subject"]))
         return rows
 
@@ -1010,10 +1452,42 @@ class StudyFlowBackend(QObject):
         total = len(self._tasks)
         completion_rate = round((completed / total) * 100) if total else 0
         return [
-            {"title": "WEEKLY FOCUS", "value": f"{self._weekly_study_minutes()}m", "subtitle": "last 7 sessions", "trend": "Active" if self._weekly_study_minutes() >= 180 else "Build", "trendUp": self._weekly_study_minutes() >= 180, "accentColor": "#3B82F6", "valueColor": "#1A2332"},
-            {"title": "COMPLETION", "value": f"{completion_rate}%", "subtitle": f"{completed}/{total} tasks", "trend": "Healthy" if completion_rate >= 60 else "Low", "trendUp": completion_rate >= 60, "accentColor": "#10B981", "valueColor": "#1A2332"},
-            {"title": "MASTERY", "value": f"{self._average_progress():.0f}%", "subtitle": "avg topic progress", "trend": "Rising" if self._average_progress() >= 65 else "Needs reps", "trendUp": self._average_progress() >= 65, "accentColor": "#F59E0B", "valueColor": "#1A2332"},
-            {"title": "RECALL", "value": f"{self._average_confidence_pct()}%", "subtitle": "confidence score", "trend": "Strong" if self._average_confidence_pct() >= 70 else "Review", "trendUp": self._average_confidence_pct() >= 70, "accentColor": "#8B5CF6", "valueColor": "#1A2332"},
+            {
+                "title": "WEEKLY FOCUS",
+                "value": f"{self._weekly_study_minutes()}m",
+                "subtitle": "last 7 sessions",
+                "trend": "Active" if self._weekly_study_minutes() >= 180 else "Build",
+                "trendUp": self._weekly_study_minutes() >= 180,
+                "accentColor": "#3B82F6",
+                "valueColor": "#1A2332",
+            },
+            {
+                "title": "COMPLETION",
+                "value": f"{completion_rate}%",
+                "subtitle": f"{completed}/{total} tasks",
+                "trend": "Healthy" if completion_rate >= 60 else "Low",
+                "trendUp": completion_rate >= 60,
+                "accentColor": "#10B981",
+                "valueColor": "#1A2332",
+            },
+            {
+                "title": "MASTERY",
+                "value": f"{self._average_progress():.0f}%",
+                "subtitle": "avg topic progress",
+                "trend": "Rising" if self._average_progress() >= 65 else "Needs reps",
+                "trendUp": self._average_progress() >= 65,
+                "accentColor": "#F59E0B",
+                "valueColor": "#1A2332",
+            },
+            {
+                "title": "RECALL",
+                "value": f"{self._average_confidence_pct()}%",
+                "subtitle": "confidence score",
+                "trend": "Strong" if self._average_confidence_pct() >= 70 else "Review",
+                "trendUp": self._average_confidence_pct() >= 70,
+                "accentColor": "#8B5CF6",
+                "valueColor": "#1A2332",
+            },
         ]
 
     @Property("QVariantList", notify=stateChanged)
@@ -1023,8 +1497,7 @@ class StudyFlowBackend(QObject):
     @Property("QVariantList", notify=stateChanged)
     def studyTrendLabels(self) -> list[str]:
         return [
-            (self._today - timedelta(days=offset)).strftime("%a")
-            for offset in range(13, -1, -1)
+            (self._today - timedelta(days=offset)).strftime("%a") for offset in range(13, -1, -1)
         ]
 
     @Property("QVariantList", notify=stateChanged)
@@ -1033,7 +1506,13 @@ class StudyFlowBackend(QObject):
         cells = []
         for index in range(56):
             day = self._today - timedelta(days=55 - index)
-            completed_for_day = len([task for task in self._tasks if task["completed"] and task["scheduled_at"].date() == day])
+            completed_for_day = len(
+                [
+                    task
+                    for task in self._tasks
+                    if task["completed"] and task["scheduled_at"].date() == day
+                ]
+            )
             recent_minutes = trend[index - 42] if index >= 42 else 0
             cells.append(min(100, completed_for_day * 35 + recent_minutes))
         return cells
@@ -1042,21 +1521,55 @@ class StudyFlowBackend(QObject):
     def analyticsSubjectRows(self) -> list[dict[str, Any]]:
         rows = []
         for row in self.subjectConfidence:
-            weak_topics = [topic for topic in self._subject_groups().get(row["subject"], []) if topic["progress"] < 60 or topic["confidence"] <= 2]
-            rows.append({**row, "risk": "High" if len(weak_topics) >= 2 else ("Medium" if weak_topics else "Low"), "nextAction": "Revise weak topics" if weak_topics else "Maintain cadence"})
+            weak_topics = [
+                topic
+                for topic in self._subject_groups().get(row["subject"], [])
+                if topic["progress"] < 60 or topic["confidence"] <= 2
+            ]
+            rows.append(
+                {
+                    **row,
+                    "risk": "High"
+                    if len(weak_topics) >= 2
+                    else ("Medium" if weak_topics else "Low"),
+                    "nextAction": "Revise weak topics" if weak_topics else "Maintain cadence",
+                }
+            )
         return rows
 
     @Property("QVariantList", notify=stateChanged)
     def intelligenceInsights(self) -> list[dict[str, Any]]:
         if not self._topics:
-            return [{"title": "Add Topics", "body": "Create topics so StudyFlow can build analytics.", "color": "#3B82F6", "severity": "Info"}]
+            return [
+                {
+                    "title": "Add Topics",
+                    "body": "Create topics so StudyFlow can build analytics.",
+                    "color": "#3B82F6",
+                    "severity": "Info",
+                }
+            ]
         weakest = min(self._topics, key=lambda topic: (topic["confidence"], topic["progress"]))
         strongest = max(self._topics, key=lambda topic: (topic["progress"], topic["confidence"]))
         overdue = self._tasks_for_bucket("overdue")
         return [
-            {"title": f"Prioritize {weakest['name']}", "body": f"{weakest['subject']} needs a short active-recall pass.", "color": "#EF4444" if weakest["confidence"] <= 2 else "#F59E0B", "severity": "Focus"},
-            {"title": "Clear Overdue Load", "body": f"{len(overdue)} overdue review(s) are influencing the recall score.", "color": "#EF4444" if overdue else "#10B981", "severity": "Schedule"},
-            {"title": f"Keep {strongest['subject']} Warm", "body": f"{strongest['name']} is one of your strongest topics.", "color": "#10B981", "severity": "Maintain"},
+            {
+                "title": f"Prioritize {weakest['name']}",
+                "body": f"{weakest['subject']} needs a short active-recall pass.",
+                "color": "#EF4444" if weakest["confidence"] <= 2 else "#F59E0B",
+                "severity": "Focus",
+            },
+            {
+                "title": "Clear Overdue Load",
+                "body": f"{len(overdue)} overdue review(s) are influencing the recall score.",
+                "color": "#EF4444" if overdue else "#10B981",
+                "severity": "Schedule",
+            },
+            {
+                "title": f"Keep {strongest['subject']} Warm",
+                "body": f"{strongest['name']} is one of your strongest topics.",
+                "color": "#10B981",
+                "severity": "Maintain",
+            },
         ]
 
     @Property("QVariantList", notify=stateChanged)
@@ -1064,7 +1577,10 @@ class StudyFlowBackend(QObject):
         cached = self._projection_cache.get("notifications")
         if cached is not None:
             return cached
-        rows = [self._normalize_notification(item, index) for index, item in enumerate(self._notifications)]
+        rows = [
+            self._normalize_notification(item, index)
+            for index, item in enumerate(self._notifications)
+        ]
         rows.sort(key=lambda item: item["timestamp"], reverse=True)
         self._projection_cache["notifications"] = rows
         return rows
@@ -1072,7 +1588,19 @@ class StudyFlowBackend(QObject):
     @Property("QVariantList", notify=stateChanged)
     def notificationStats(self) -> list[dict[str, Any]]:
         unread = len([item for item in self.notifications if not item["read"]])
-        return [{"label": "Unread", "value": str(unread), "color": "#3B82F6"}, {"label": "Overdue", "value": str(len(self._tasks_for_bucket("overdue"))), "color": "#EF4444"}, {"label": "Due Today", "value": str(len(self._tasks_for_bucket("due_today"))), "color": "#F59E0B"}]
+        return [
+            {"label": "Unread", "value": str(unread), "color": "#3B82F6"},
+            {
+                "label": "Overdue",
+                "value": str(len(self._tasks_for_bucket("overdue"))),
+                "color": "#EF4444",
+            },
+            {
+                "label": "Due Today",
+                "value": str(len(self._tasks_for_bucket("due_today"))),
+                "color": "#F59E0B",
+            },
+        ]
 
     @Property("QVariantMap", notify=stateChanged)
     def todayDigest(self) -> dict[str, Any]:
@@ -1087,12 +1615,20 @@ class StudyFlowBackend(QObject):
             summary = f"{len(overdue)} overdue review{'s' if len(overdue) != 1 else ''} need attention first."
             tone = "#EF4444"
         elif due_today:
-            summary = f"{len(due_today)} review{'s' if len(due_today) != 1 else ''} are queued for today."
+            summary = (
+                f"{len(due_today)} review{'s' if len(due_today) != 1 else ''} are queued for today."
+            )
             tone = "#F59E0B"
         else:
             summary = "No urgent revisions right now."
             tone = "#10B981"
-        completed_today = len([task for task in self._tasks if task["completed"] and task["scheduled_at"].date() == self._today])
+        completed_today = len(
+            [
+                task
+                for task in self._tasks
+                if task["completed"] and task["scheduled_at"].date() == self._today
+            ]
+        )
         cached = {
             "summary": summary,
             "tone": tone,
@@ -1100,7 +1636,9 @@ class StudyFlowBackend(QObject):
             "dueTodayCount": len(due_today),
             "completedToday": completed_today,
             "unread": len([item for item in self.notifications if not item["read"]]),
-            "nextSession": f"Next session: {next_task['name']} for {next_task['durationMinutes']} min" if next_task else "No sessions scheduled.",
+            "nextSession": f"Next session: {next_task['name']} for {next_task['durationMinutes']} min"
+            if next_task
+            else "No sessions scheduled.",
             "nextSubject": next_task["subject"] if next_task else "",
         }
         self._projection_cache["today_digest"] = cached
@@ -1110,12 +1648,32 @@ class StudyFlowBackend(QObject):
     def upcomingReminders(self) -> list[dict[str, Any]]:
         tasks = [task for task in self._tasks if not task["completed"]]
         tasks.sort(key=lambda item: item["scheduled_at"])
-        return [{"id": task["id"], "title": task["topic"], "subject": task["subject"], "when": self._task_payload(task)["scheduledText"], "color": self._task_payload(task)["subjectColor"], "status": self._task_payload(task)["status"], "statusColor": self._task_payload(task)["statusColor"]} for task in tasks[:5]]
+        return [
+            {
+                "id": task["id"],
+                "title": task["topic"],
+                "subject": task["subject"],
+                "when": self._task_payload(task)["scheduledText"],
+                "color": self._task_payload(task)["subjectColor"],
+                "status": self._task_payload(task)["status"],
+                "statusColor": self._task_payload(task)["statusColor"],
+            }
+            for task in tasks[:5]
+        ]
 
     @Property("QVariantList", notify=stateChanged)
     def alertSettings(self) -> list[dict[str, Any]]:
         supported_keys = ("due_today", "overdue", "weekly_reports", "ai_suggestions")
-        return [{"key": key, "label": ALERT_SETTING_META[key][0], "description": ALERT_SETTING_META[key][1], "color": ALERT_SETTING_META[key][2], "on": bool(self._alert_settings.get(key, False))} for key in supported_keys]
+        return [
+            {
+                "key": key,
+                "label": ALERT_SETTING_META[key][0],
+                "description": ALERT_SETTING_META[key][1],
+                "color": ALERT_SETTING_META[key][2],
+                "on": bool(self._alert_settings.get(key, False)),
+            }
+            for key in supported_keys
+        ]
 
     @Property("QVariantMap", notify=stateChanged)
     def reminderPreferences(self) -> dict[str, Any]:
@@ -1131,7 +1689,11 @@ class StudyFlowBackend(QObject):
 
     @Property("QVariantList", constant=True)
     def assistantPrompts(self) -> list[dict[str, str]]:
-        due_topic = self._tasks_for_bucket("due_today")[0]["name"] if self._tasks_for_bucket("due_today") else "my next due topic"
+        due_topic = (
+            self._tasks_for_bucket("due_today")[0]["name"]
+            if self._tasks_for_bucket("due_today")
+            else "my next due topic"
+        )
         return [
             {"label": "Study Today", "prompt": "What should I study today?"},
             {"label": "Explain Topic", "prompt": f"Explain {due_topic} with a quick recall plan."},
@@ -1142,7 +1704,16 @@ class StudyFlowBackend(QObject):
     @Property("QVariantMap", notify=stateChanged)
     def assistantContextSummary(self) -> dict[str, Any]:
         context = self._assistant_context()
-        return {"dueToday": len(context.due_today), "overdue": len(context.overdue), "weakSubjects": len([item for item in context.weak_subjects if item.get("risk") != "Low"]), "nextTopic": context.overdue[0]["name"] if context.overdue else (context.due_today[0]["name"] if context.due_today else "No due topics")}
+        return {
+            "dueToday": len(context.due_today),
+            "overdue": len(context.overdue),
+            "weakSubjects": len(
+                [item for item in context.weak_subjects if item.get("risk") != "Low"]
+            ),
+            "nextTopic": context.overdue[0]["name"]
+            if context.overdue
+            else (context.due_today[0]["name"] if context.due_today else "No due topics"),
+        }
 
     @Property("QVariantMap", notify=stateChanged)
     def scheduleSettings(self) -> dict[str, Any]:
@@ -1171,7 +1742,17 @@ class StudyFlowBackend(QObject):
                     },
                 ],
             },
-            {"title": "Notifications", "rows": [{"label": "Auto Schedule", "key": "auto_schedule", "kind": "toggle", "toggleOn": bool(self._settings.get("auto_schedule", True))}]},
+            {
+                "title": "Notifications",
+                "rows": [
+                    {
+                        "label": "Auto Schedule",
+                        "key": "auto_schedule",
+                        "kind": "toggle",
+                        "toggleOn": bool(self._settings.get("auto_schedule", True)),
+                    }
+                ],
+            },
         ]
 
     @Slot(str, str)
@@ -1197,7 +1778,9 @@ class StudyFlowBackend(QObject):
             return
         try:
             with self._db() as db:
-                SubjectService(db).create_subject(name=clean_name, color_tag=color.strip() or self._generate_subject_color())
+                SubjectService(db).create_subject(
+                    name=clean_name, color_tag=color.strip() or self._generate_subject_color()
+                )
         except IntegrityError:
             logger.warning("Subject already exists", extra={"subject": clean_name})
             self._show_toast("error", "Subject Not Added", f"{clean_name} already exists.")
@@ -1221,14 +1804,18 @@ class StudyFlowBackend(QObject):
             subject_name = subject.name if subject is not None else "Subject"
             SubjectService(db).delete_subject(subject_id)
         self._request_intelligence_refresh(train=True)
-        self._show_toast("success", "Subject Deleted", f"{subject_name} and its topics were removed.")
+        self._show_toast(
+            "success", "Subject Deleted", f"{subject_name} and its topics were removed."
+        )
         self._emit()
 
     @Slot(str, str, str)
     def addTopic(self, subject_id: str, name: str, difficulty: str) -> None:
         level = DifficultyLevel((difficulty or "Medium").lower())
         with self._db() as db:
-            TopicService(db, scheduler=self._scheduler(db)).create_topic(subject_id=subject_id, name=name.strip(), difficulty=level)
+            TopicService(db, scheduler=self._scheduler(db)).create_topic(
+                subject_id=subject_id, name=name.strip(), difficulty=level
+            )
         self._request_intelligence_refresh(train=True)
         self._show_toast("success", "Topic Added", f"{name.strip()} was added to your curriculum.")
         self._emit()
@@ -1247,13 +1834,18 @@ class StudyFlowBackend(QObject):
     @Slot(str, int)
     def updateTopicProgress(self, topic_id: str, progress: int) -> None:
         with self._db() as db:
-            TopicService(db, scheduler=self._scheduler(db)).update_topic(topic_id, progress=progress)
+            TopicService(db, scheduler=self._scheduler(db)).update_topic(
+                topic_id, progress=progress
+            )
         self._request_intelligence_refresh()
         self._emit()
 
     @Slot(result="QVariantList")
     def getSubjects(self) -> list[dict[str, Any]]:
-        return [{"id": item["subjectId"], "name": item["subjectName"], "color": item["accentColor"]} for item in self._curriculum_subject_records()]
+        return [
+            {"id": item["subjectId"], "name": item["subjectName"], "color": item["accentColor"]}
+            for item in self._curriculum_subject_records()
+        ]
 
     @Slot(result="QVariantList")
     def getTopics(self) -> list[dict[str, Any]]:
@@ -1268,7 +1860,9 @@ class StudyFlowBackend(QObject):
         safe_rating = max(1, min(int(rating), 4))
         with self._db() as db:
             scheduler = self._scheduler(db)
-            scheduler.review(topic_id, _rating_from_int(safe_rating), completed_at=naive_local_now())
+            scheduler.review(
+                topic_id, _rating_from_int(safe_rating), completed_at=naive_local_now()
+            )
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
@@ -1283,7 +1877,9 @@ class StudyFlowBackend(QObject):
                 self._show_toast("error", "Task Update Failed", "That task is no longer available.")
                 return
             topic_name = revision.topic.name
-            self._scheduler(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=naive_local_now())
+            self._scheduler(db).record_revision(
+                revision.id, rating=ConfidenceRating.GOOD, completed_at=naive_local_now()
+            )
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
@@ -1296,18 +1892,31 @@ class StudyFlowBackend(QObject):
         with self._db() as db:
             revision = db.get(Revision, int(task_id))
             if revision is None or revision.status != "open":
-                self._show_toast("error", "Revision Update Failed", "That revision is no longer open.")
+                self._show_toast(
+                    "error", "Revision Update Failed", "That revision is no longer open."
+                )
                 return
             safe_rating = max(1, min(int(rating), 4))
             topic_name = revision.topic.name
-            self._scheduler(db).record_revision(revision.id, rating=_rating_from_int(safe_rating), completed_at=naive_local_now())
+            self._scheduler(db).record_revision(
+                revision.id, rating=_rating_from_int(safe_rating), completed_at=naive_local_now()
+            )
         self._study_minutes.append(25)
         self._study_minutes = self._study_minutes[-14:]
         self._save()
         self._mark_revision_completed_for_intelligence()
         self._emit()
-        self._show_toast("success", "Revision Logged", f"{topic_name} rated {RATING_LABELS[max(1, min(int(rating), 4))]}.")
-        self._add_notification("Revision Logged", f"Review marked {RATING_LABELS[max(1, min(int(rating), 4))]}.", "check_circle", "#10B981")
+        self._show_toast(
+            "success",
+            "Revision Logged",
+            f"{topic_name} rated {RATING_LABELS[max(1, min(int(rating), 4))]}.",
+        )
+        self._add_notification(
+            "Revision Logged",
+            f"Review marked {RATING_LABELS[max(1, min(int(rating), 4))]}.",
+            "check_circle",
+            "#10B981",
+        )
 
     @Slot(str, str, str, str)
     def addTask(self, topic_name: str, subject_id: str, difficulty: str, schedule_key: str) -> None:
@@ -1318,7 +1927,12 @@ class StudyFlowBackend(QObject):
         with self._db() as db:
             scheduler = self._scheduler(db)
             service = TopicService(db, scheduler=scheduler)
-            topic = service.create_topic(subject_id=subject_id, name=clean_topic_name, difficulty=DifficultyLevel((difficulty or "Medium").lower()), auto_schedule=False)
+            topic = service.create_topic(
+                subject_id=subject_id,
+                name=clean_topic_name,
+                difficulty=DifficultyLevel((difficulty or "Medium").lower()),
+                auto_schedule=False,
+            )
             offset = {"overdue": -1, "today": 0, "tomorrow": 1, "this_week": 3}.get(schedule_key, 0)
             scheduled_for = self._today + timedelta(days=offset)
             revision = scheduler.create_first_revision(topic.id, scheduled_for=scheduled_for)
@@ -1337,7 +1951,9 @@ class StudyFlowBackend(QObject):
                 self._show_toast("error", "Skip Failed", "That task is no longer available.")
                 return
             topic_name = revision.topic.name
-            self._scheduler(db).reschedule_after_miss(revision.id, reschedule_from=self._today + timedelta(days=1))
+            self._scheduler(db).reschedule_after_miss(
+                revision.id, reschedule_from=self._today + timedelta(days=1)
+            )
         self._request_intelligence_refresh()
         self._show_toast("info", "Task Skipped", f"{topic_name} was moved to the next slot.")
         self._emit()
@@ -1361,11 +1977,15 @@ class StudyFlowBackend(QObject):
                     )
                 )
                 for revision in revisions:
-                    self._scheduler(db).record_revision(revision.id, rating=ConfidenceRating.GOOD, completed_at=naive_local_now())
+                    self._scheduler(db).record_revision(
+                        revision.id, rating=ConfidenceRating.GOOD, completed_at=naive_local_now()
+                    )
                     completed_count += 1
         except Exception:
             logger.exception("Failed to mark visible tasks done")
-            self._show_toast("error", "Bulk Update Failed", "StudyFlow could not mark the visible tasks as done.")
+            self._show_toast(
+                "error", "Bulk Update Failed", "StudyFlow could not mark the visible tasks as done."
+            )
             return
 
         if completed_count == 0:
@@ -1376,7 +1996,11 @@ class StudyFlowBackend(QObject):
         self._study_minutes = self._study_minutes[-14:]
         self._save()
         self._mark_revision_completed_for_intelligence()
-        self._show_toast("success", "Tasks Completed", f"Marked {completed_count} visible task{'s' if completed_count != 1 else ''} as done.")
+        self._show_toast(
+            "success",
+            "Tasks Completed",
+            f"Marked {completed_count} visible task{'s' if completed_count != 1 else ''} as done.",
+        )
         self._emit()
 
     @Slot()
@@ -1414,7 +2038,11 @@ class StudyFlowBackend(QObject):
 
         session_info = self._active_session_payload()
         self._save()
-        detail = f"Focusing on {session_info['topic']}." if session_info["topic"] else "Pick a due topic and rate it when you finish."
+        detail = (
+            f"Focusing on {session_info['topic']}."
+            if session_info["topic"]
+            else "Pick a due topic and rate it when you finish."
+        )
         self._show_toast("info", "Session Started", detail)
         self._emit()
         self._add_notification("Session Started", detail, "play_arrow", "#3B82F6")
@@ -1443,20 +2071,44 @@ class StudyFlowBackend(QObject):
         self._active_session = None
         self._save()
         self._emit()
-        detail = f"Logged {duration_minutes} minutes on {session_topic}." if session_topic else f"Logged {duration_minutes} study minutes."
+        detail = (
+            f"Logged {duration_minutes} minutes on {session_topic}."
+            if session_topic
+            else f"Logged {duration_minutes} study minutes."
+        )
         self._show_toast("success", "Session Ended", detail)
         self._add_notification("Session Ended", detail, "stop", "#10B981")
 
     @Slot(str, str, str, str, str, str)
-    def upsertTopic(self, topic_id: str, name: str, subject_id: str, difficulty: str, parent_topic_id: str, notes: str) -> None:
+    def upsertTopic(
+        self,
+        topic_id: str,
+        name: str,
+        subject_id: str,
+        difficulty: str,
+        parent_topic_id: str,
+        notes: str,
+    ) -> None:
         level = DifficultyLevel((difficulty or "Medium").lower())
         with self._db() as db:
             service = TopicService(db, scheduler=self._scheduler(db))
             if topic_id:
-                service.update_topic(topic_id, name=name.strip(), difficulty=level, parent_topic_id=parent_topic_id, notes=notes.strip())
+                service.update_topic(
+                    topic_id,
+                    name=name.strip(),
+                    difficulty=level,
+                    parent_topic_id=parent_topic_id,
+                    notes=notes.strip(),
+                )
                 toast_title = "Topic Updated"
             else:
-                service.create_topic(subject_id=subject_id, name=name.strip(), difficulty=level, parent_topic_id=parent_topic_id, notes=notes.strip())
+                service.create_topic(
+                    subject_id=subject_id,
+                    name=name.strip(),
+                    difficulty=level,
+                    parent_topic_id=parent_topic_id,
+                    notes=notes.strip(),
+                )
                 toast_title = "Topic Added"
         self._request_intelligence_refresh(train=True)
         self._show_toast("success", toast_title, f"{name.strip()} was saved.")
@@ -1468,7 +2120,9 @@ class StudyFlowBackend(QObject):
         with self._db() as db:
             topic = db.get(Topic, int(topic_id))
             topic_name = topic.name if topic is not None else "Topic"
-            TopicService(db, scheduler=self._scheduler(db)).update_topic(topic_id, is_completed=True, completion_date=self._today, progress=100)
+            TopicService(db, scheduler=self._scheduler(db)).update_topic(
+                topic_id, is_completed=True, completion_date=self._today, progress=100
+            )
         self._request_intelligence_refresh()
         self._show_toast("success", "Topic Completed", f"{topic_name} reached 100% progress.")
         self._emit()
@@ -1476,11 +2130,19 @@ class StudyFlowBackend(QObject):
     @Slot(str, result="QVariantMap")
     def suggestTopicDifficulty(self, topic_name: str) -> dict[str, Any]:
         prediction = self._nlp_service.predict_difficulty(topic_name.strip())
-        return {"difficulty": prediction.difficulty.value.capitalize() if prediction.difficulty else "", "confidence": round(prediction.confidence, 2), "source": prediction.source}
+        return {
+            "difficulty": prediction.difficulty.value.capitalize() if prediction.difficulty else "",
+            "confidence": round(prediction.confidence, 2),
+            "source": prediction.source,
+        }
 
     def _looks_like_import_header(self, row: list[str]) -> bool:
         normalized = {cell.strip().lower() for cell in row if cell and cell.strip()}
-        return bool(normalized) and "topic" in normalized and ("subject" in normalized or "difficulty" in normalized)
+        return (
+            bool(normalized)
+            and "topic" in normalized
+            and ("subject" in normalized or "difficulty" in normalized)
+        )
 
     def _normalize_import_difficulty(self, topic_name: str, raw_difficulty: str) -> DifficultyLevel:
         value = (raw_difficulty or "").strip().lower()
@@ -1498,12 +2160,16 @@ class StudyFlowBackend(QObject):
         suggestion = self.suggestTopicDifficulty(topic_name)
         return DifficultyLevel((suggestion["difficulty"] or "Medium").lower())
 
-    def _parse_import_entries(self, raw_text: str, default_subject_id: str, csv_mode: bool) -> list[dict[str, str]]:
+    def _parse_import_entries(
+        self, raw_text: str, default_subject_id: str, csv_mode: bool
+    ) -> list[dict[str, str]]:
         entries: list[dict[str, str]] = []
         fallback_subject = default_subject_id.strip()
         if csv_mode:
             rows = list(csv.reader(StringIO(raw_text)))
-            non_empty_rows = [[cell.strip() for cell in row] for row in rows if any(cell.strip() for cell in row)]
+            non_empty_rows = [
+                [cell.strip() for cell in row] for row in rows if any(cell.strip() for cell in row)
+            ]
             if not non_empty_rows:
                 return entries
             if self._looks_like_import_header(non_empty_rows[0]):
@@ -1541,9 +2207,17 @@ class StudyFlowBackend(QObject):
                 continue
             parts = [part.strip() for part in clean.split("|")]
             if len(parts) >= 3:
-                entries.append({"subject": parts[0] or fallback_subject, "topic": parts[1], "difficulty": parts[2]})
+                entries.append(
+                    {
+                        "subject": parts[0] or fallback_subject,
+                        "topic": parts[1],
+                        "difficulty": parts[2],
+                    }
+                )
             elif len(parts) == 2:
-                entries.append({"subject": parts[0] or fallback_subject, "topic": parts[1], "difficulty": ""})
+                entries.append(
+                    {"subject": parts[0] or fallback_subject, "topic": parts[1], "difficulty": ""}
+                )
             else:
                 entries.append({"subject": fallback_subject, "topic": clean, "difficulty": ""})
         return [entry for entry in entries if entry["topic"]]
@@ -1551,7 +2225,9 @@ class StudyFlowBackend(QObject):
     def _resolve_import_subject_id(self, db: Session, raw_subject: str) -> tuple[str, bool]:
         clean_subject = raw_subject.strip()
         if not clean_subject:
-            raise ValueError("Each imported topic needs a subject when no default subject is selected.")
+            raise ValueError(
+                "Each imported topic needs a subject when no default subject is selected."
+            )
         subject_service = SubjectService(db)
         try:
             subject = subject_service.get_subject(clean_subject)
@@ -1559,7 +2235,9 @@ class StudyFlowBackend(QObject):
             subject = db.scalars(select(Subject).where(Subject.name == clean_subject)).first()
         if subject is not None:
             return str(subject.id), False
-        created = subject_service.create_subject(name=clean_subject, color_tag=self._generate_subject_color())
+        created = subject_service.create_subject(
+            name=clean_subject, color_tag=self._generate_subject_color()
+        )
         return str(created.id), True
 
     @Slot(str, str, bool)
@@ -1575,32 +2253,59 @@ class StudyFlowBackend(QObject):
             service = TopicService(db, scheduler=self._scheduler(db))
             for entry in entries:
                 try:
-                    resolved_subject_id, subject_created = self._resolve_import_subject_id(db, entry["subject"])
+                    resolved_subject_id, subject_created = self._resolve_import_subject_id(
+                        db, entry["subject"]
+                    )
                     if subject_created:
                         created_subjects.add(entry["subject"].strip())
-                    difficulty = self._normalize_import_difficulty(entry["topic"], entry["difficulty"])
+                    difficulty = self._normalize_import_difficulty(
+                        entry["topic"], entry["difficulty"]
+                    )
                     with db.begin_nested():
-                        service.create_topic(subject_id=resolved_subject_id, name=entry["topic"], difficulty=difficulty)
+                        service.create_topic(
+                            subject_id=resolved_subject_id,
+                            name=entry["topic"],
+                            difficulty=difficulty,
+                        )
                         db.flush()
                     created += 1
                 except IntegrityError:
                     skipped += 1
-                    logger.warning("Skipping duplicate or invalid imported topic", extra={"topic": entry["topic"], "subject_id": entry["subject"]})
+                    logger.warning(
+                        "Skipping duplicate or invalid imported topic",
+                        extra={"topic": entry["topic"], "subject_id": entry["subject"]},
+                    )
                 except ValueError:
                     skipped += 1
                     logger.warning(
                         "Skipping imported topic due to invalid subject or difficulty",
-                        extra={"topic": entry["topic"], "subject_id": entry["subject"], "difficulty": entry["difficulty"]},
+                        extra={
+                            "topic": entry["topic"],
+                            "subject_id": entry["subject"],
+                            "difficulty": entry["difficulty"],
+                        },
                     )
         if created == 0:
-            self._show_toast("error", "Import Failed", "No topics were imported. Check subjects, duplicates, or row format.")
+            self._show_toast(
+                "error",
+                "Import Failed",
+                "No topics were imported. Check subjects, duplicates, or row format.",
+            )
             return
         self._request_intelligence_refresh(train=True)
         subject_summary = ""
         if created_subjects:
             subject_summary = f" Added {len(created_subjects)} new subject{'s' if len(created_subjects) != 1 else ''}."
-        suffix = f" Skipped {skipped} duplicate or invalid row{'s' if skipped != 1 else ''}." if skipped else ""
-        self._show_toast("success", "Import Complete", f"Imported {created} topic{'s' if created != 1 else ''}.{subject_summary}{suffix}")
+        suffix = (
+            f" Skipped {skipped} duplicate or invalid row{'s' if skipped != 1 else ''}."
+            if skipped
+            else ""
+        )
+        self._show_toast(
+            "success",
+            "Import Complete",
+            f"Imported {created} topic{'s' if created != 1 else ''}.{subject_summary}{suffix}",
+        )
         self._emit()
 
     @Slot(str)
@@ -1615,7 +2320,9 @@ class StudyFlowBackend(QObject):
 
     @Slot(str)
     def setCurriculumDifficulty(self, difficulty: str) -> None:
-        self._curriculum_filter = difficulty if difficulty in {"All", "Easy", "Medium", "Hard"} else "All"
+        self._curriculum_filter = (
+            difficulty if difficulty in {"All", "Easy", "Medium", "Hard"} else "All"
+        )
         self._emit()
 
     @Slot(str)
@@ -1652,7 +2359,9 @@ class StudyFlowBackend(QObject):
         new_year = self._calendar_view_date.year + new_month // 12
         new_month = new_month % 12 + 1
         max_days = calendar.monthrange(new_year, new_month)[1]
-        next_view_date = self._calendar_view_date.replace(year=new_year, month=new_month, day=min(self._calendar_view_date.day, max_days))
+        next_view_date = self._calendar_view_date.replace(
+            year=new_year, month=new_month, day=min(self._calendar_view_date.day, max_days)
+        )
         if next_view_date == self._calendar_view_date:
             return
         self._calendar_view_date = next_view_date
@@ -1670,12 +2379,16 @@ class StudyFlowBackend(QObject):
         for notification in self._notifications:
             notification["read"] = True
         self._save()
-        self._show_toast("success", "Notifications Updated", "All notifications were marked as read.")
+        self._show_toast(
+            "success", "Notifications Updated", "All notifications were marked as read."
+        )
         self._emit()
 
     @Slot(str)
     def markNotificationRead(self, notification_id: str) -> None:
-        notification = next((item for item in self._notifications if item["id"] == notification_id), None)
+        notification = next(
+            (item for item in self._notifications if item["id"] == notification_id), None
+        )
         if notification is None:
             return
         notification["read"] = True
@@ -1697,7 +2410,11 @@ class StudyFlowBackend(QObject):
         now = local_now()
         if preferences.desktop_notifications:
             created += self._study_due_notifications(now)
-        summary = build_morning_summary(self._tasks_for_bucket("due_today"), self._tasks_for_bucket("overdue"), preferences.minimum_due_for_alert)
+        summary = build_morning_summary(
+            self._tasks_for_bucket("due_today"),
+            self._tasks_for_bucket("overdue"),
+            preferences.minimum_due_for_alert,
+        )
         if summary is not None and self._alert_settings.get("due_today", True):
             created += int(
                 self._upsert_automated_notification(
@@ -1725,7 +2442,12 @@ class StudyFlowBackend(QObject):
 
     def _reminder_preferences_model(self) -> ReminderPreferences:
         hour, minute = self._reminder_preferences["notification_time"].split(":", maxsplit=1)
-        return ReminderPreferences(enabled=bool(self._reminder_preferences["enabled"]), notification_time=time(hour=int(hour), minute=int(minute)), minimum_due_for_alert=int(self._reminder_preferences["minimum_due_for_alert"]), desktop_notifications=bool(self._reminder_preferences["desktop_notifications"]))
+        return ReminderPreferences(
+            enabled=bool(self._reminder_preferences["enabled"]),
+            notification_time=time(hour=int(hour), minute=int(minute)),
+            minimum_due_for_alert=int(self._reminder_preferences["minimum_due_for_alert"]),
+            desktop_notifications=bool(self._reminder_preferences["desktop_notifications"]),
+        )
 
     @Slot(str, str)
     def updateReminderPreference(self, key: str, value: str) -> None:
@@ -1756,28 +2478,27 @@ class StudyFlowBackend(QObject):
     def exportCalendar(self, output_path: str | None = None) -> str:
         export_path = self._calendar_export_path(output_path)
         write_revision_calendar(self._open_task_rows(), export_path)
-        self._add_notification("Calendar Export Ready", f"Saved upcoming revision sessions to {export_path.name}.", "CAL", "#3B82F6")
+        self._add_notification(
+            "Calendar Export Ready",
+            f"Saved upcoming revision sessions to {export_path.name}.",
+            "CAL",
+            "#3B82F6",
+        )
         return str(export_path)
 
     @Slot(str, result="QVariantMap")
     def sendAssistantMessage(self, prompt: str) -> dict[str, Any]:
-        clean = prompt.strip()
-        if not clean:
-            return {"text": "", "source": "empty"}
-        user_message = self._normalize_assistant_message({"role": "user", "text": clean, "source": "user"})
-        self._assistant_messages.append(user_message)
-        response = self._llm_service.answer(clean, self._assistant_context(recent_messages=self._assistant_messages[-6:]))
-        self._assistant_status = self._llm_service.status()
-        assistant_message = self._normalize_assistant_message({"role": "assistant", "text": response["text"], "source": response["source"]})
-        self._assistant_messages.append(assistant_message)
-        self._assistant_messages = self._assistant_messages[-40:]
+        result = self._assistant_controller.sendAssistantMessage(prompt)
+        self._assistant_messages = self._assistant_controller.messages_payload
+        self._assistant_status = self._assistant_controller.assistantStatus
         self._save()
         self._emit()
-        return assistant_message
+        return result
 
     @Slot()
     def clearAssistantChat(self) -> None:
-        self._assistant_messages = self._default_assistant_messages()
+        self._assistant_controller.clearAssistantChat()
+        self._assistant_messages = self._assistant_controller.messages_payload
         self._save()
         self._show_toast("info", "Chat Cleared", "Assistant history was reset.")
         self._emit()
@@ -1792,7 +2513,9 @@ class StudyFlowBackend(QObject):
         self._study_minutes.clear()
         self._notifications.clear()
         self._save()
-        self._show_toast("warning", "History Cleared", "Study history and notifications were cleared.")
+        self._show_toast(
+            "warning", "History Cleared", "Study history and notifications were cleared."
+        )
         self._emit()
 
     @Slot(str)
@@ -1808,7 +2531,9 @@ class StudyFlowBackend(QObject):
         keys = ["notifications", "reminders", "auto_schedule"]
         key = keys[index] if isinstance(index, int) else str(index)
         if key == "notifications":
-            self._settings["notifications"]["enabled"] = not bool(self._settings["notifications"]["enabled"])
+            self._settings["notifications"]["enabled"] = not bool(
+                self._settings["notifications"]["enabled"]
+            )
         elif key in {"reminders", "auto_schedule"}:
             self._settings[key] = not bool(self._settings[key])
         self._save()
@@ -1831,5 +2556,10 @@ class StudyFlowBackend(QObject):
         export_dir.mkdir(parents=True, exist_ok=True)
         report_path = export_dir / "learning_report.txt"
         report_path.write_text("StudyFlow Learning Report\n", encoding="utf-8")
-        self._add_notification("Learning Report Exported", f"Saved analytics report to {report_path.name}.", "R", "#8B5CF6")
+        self._add_notification(
+            "Learning Report Exported",
+            f"Saved analytics report to {report_path.name}.",
+            "R",
+            "#8B5CF6",
+        )
         return str(report_path)

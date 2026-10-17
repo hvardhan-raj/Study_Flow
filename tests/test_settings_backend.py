@@ -28,8 +28,12 @@ def test_daily_limit_increase_immediately_updates_schedule_views(tmp_path) -> No
     with backend._db() as db:
         topic_repo = TopicRepository(db)
         subject = topic_repo.create_subject("Biology")
-        topic_a = topic_repo.create_topic(subject_id=subject.id, name="Photosynthesis", difficulty="hard")
-        topic_b = topic_repo.create_topic(subject_id=subject.id, name="Respiration", difficulty="hard")
+        topic_a = topic_repo.create_topic(
+            subject_id=subject.id, name="Photosynthesis", difficulty="hard"
+        )
+        topic_b = topic_repo.create_topic(
+            subject_id=subject.id, name="Respiration", difficulty="hard"
+        )
         scheduler = backend._scheduler(db)
         scheduler.create_first_revision(topic_a.id, scheduled_for=today)
         scheduler.create_first_revision(topic_b.id, scheduled_for=today)

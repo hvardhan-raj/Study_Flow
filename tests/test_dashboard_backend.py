@@ -8,9 +8,15 @@ from studyflow_backend.service import StudyFlowBackend
 def test_dashboard_columns_split_tasks_by_schedule(tmp_path) -> None:
     backend = StudyFlowBackend(tmp_path / "dashboard_state.json")
     subject = backend.getSubjects()[0]
-    backend.addTask(f"Dashboard Overdue Seed {uuid4().hex}", str(subject["id"]), "Medium", "overdue")
-    backend.addTask(f"Dashboard Due Today Seed {uuid4().hex}", str(subject["id"]), "Medium", "today")
-    backend.addTask(f"Dashboard Upcoming Seed {uuid4().hex}", str(subject["id"]), "Medium", "tomorrow")
+    backend.addTask(
+        f"Dashboard Overdue Seed {uuid4().hex}", str(subject["id"]), "Medium", "overdue"
+    )
+    backend.addTask(
+        f"Dashboard Due Today Seed {uuid4().hex}", str(subject["id"]), "Medium", "today"
+    )
+    backend.addTask(
+        f"Dashboard Upcoming Seed {uuid4().hex}", str(subject["id"]), "Medium", "tomorrow"
+    )
 
     columns = {column["key"]: column for column in backend.dashboardColumns}
 
@@ -31,7 +37,9 @@ def test_complete_revision_updates_task_and_topic_state(tmp_path) -> None:
 
     backend.completeRevision(target_task["id"], 4)
     updated_task = next(task for task in backend._tasks if task["id"] == target_task["id"])
-    updated_topic = next(topic for topic in backend._topics if topic["name"] == target_task["topic"])
+    updated_topic = next(
+        topic for topic in backend._topics if topic["name"] == target_task["topic"]
+    )
 
     assert updated_task["completed"] is True
     assert isinstance(updated_task["completed_at"], datetime)

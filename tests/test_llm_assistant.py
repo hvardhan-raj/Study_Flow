@@ -22,8 +22,12 @@ class FakeClient:
 
 
 class FallbackModelClient(FakeClient):
-    def __init__(self, *, configured_model: str, installed_models: list[str], response: str) -> None:
-        super().__init__(available=True, response=response, has_model=configured_model in installed_models)
+    def __init__(
+        self, *, configured_model: str, installed_models: list[str], response: str
+    ) -> None:
+        super().__init__(
+            available=True, response=response, has_model=configured_model in installed_models
+        )
         self.model = configured_model
         self._installed_models = installed_models
 
