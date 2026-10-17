@@ -32,9 +32,15 @@ def test_process_review_applies_sm2_intervals(session) -> None:
     scheduler = _build_scheduler(session, date(2026, 4, 9))
 
     first = scheduler.create_first_revision(topic.id)
-    second = scheduler.process_review(first.id, ConfidenceRating.GOOD, completed_at=datetime(2026, 4, 9, 18, 0, 0))
-    third = scheduler.process_review(second.id, ConfidenceRating.GOOD, completed_at=datetime(2026, 4, 10, 18, 0, 0))
-    fourth = scheduler.process_review(third.id, ConfidenceRating.GOOD, completed_at=datetime(2026, 4, 13, 18, 0, 0))
+    second = scheduler.process_review(
+        first.id, ConfidenceRating.GOOD, completed_at=datetime(2026, 4, 9, 18, 0, 0)
+    )
+    third = scheduler.process_review(
+        second.id, ConfidenceRating.GOOD, completed_at=datetime(2026, 4, 10, 18, 0, 0)
+    )
+    fourth = scheduler.process_review(
+        third.id, ConfidenceRating.GOOD, completed_at=datetime(2026, 4, 13, 18, 0, 0)
+    )
     session.commit()
 
     refreshed_topic = topic_repo.get_topic(topic.id)
@@ -44,7 +50,11 @@ def test_process_review_applies_sm2_intervals(session) -> None:
         .order_by(Revision.id)
         .all()
     )
-    next_open = session.query(Revision).filter(Revision.topic_id == topic.id, Revision.status == "open").one()
+    next_open = (
+        session.query(Revision)
+        .filter(Revision.topic_id == topic.id, Revision.status == "open")
+        .one()
+    )
 
     assert refreshed_topic is not None
     assert refreshed_topic.review_count == 3
@@ -60,7 +70,9 @@ def test_low_quality_review_resets_repetition(session) -> None:
     scheduler = _build_scheduler(session, date(2026, 4, 9))
 
     revision = scheduler.create_first_revision(topic.id)
-    follow_up = scheduler.process_review(revision.id, ConfidenceRating.AGAIN, completed_at=datetime(2026, 4, 9, 18, 0, 0))
+    follow_up = scheduler.process_review(
+        revision.id, ConfidenceRating.AGAIN, completed_at=datetime(2026, 4, 9, 18, 0, 0)
+    )
     session.commit()
 
     stored_topic = topic_repo.get_topic(topic.id)
@@ -76,7 +88,9 @@ def test_get_tasks_for_date_allocates_non_overlapping_time_slots(session) -> Non
     topic_repo = TopicRepository(session)
     subject = topic_repo.create_subject("History")
     topic_a = topic_repo.create_topic(subject_id=subject.id, name="Ancient Rome", difficulty="easy")
-    topic_b = topic_repo.create_topic(subject_id=subject.id, name="World War I", difficulty="medium")
+    topic_b = topic_repo.create_topic(
+        subject_id=subject.id, name="World War I", difficulty="medium"
+    )
     scheduler = _build_scheduler(session, date(2026, 4, 21))
 
     scheduler.create_first_revision(topic_a.id, scheduled_for=date(2026, 4, 21))
@@ -96,7 +110,9 @@ def test_overflow_moves_remaining_tasks_to_next_day(session) -> None:
 
     topic_repo = TopicRepository(session)
     subject = topic_repo.create_subject("Biology")
-    topic_a = topic_repo.create_topic(subject_id=subject.id, name="Photosynthesis", difficulty="hard")
+    topic_a = topic_repo.create_topic(
+        subject_id=subject.id, name="Photosynthesis", difficulty="hard"
+    )
     topic_b = topic_repo.create_topic(subject_id=subject.id, name="Respiration", difficulty="hard")
     scheduler = _build_scheduler(session, date(2026, 4, 15))
 
@@ -117,13 +133,17 @@ def test_compact_rebalance_pulls_overflow_back_after_daily_limit_increase(sessio
 
     topic_repo = TopicRepository(session)
     subject = topic_repo.create_subject("Biology")
-    topic_a = topic_repo.create_topic(subject_id=subject.id, name="Photosynthesis", difficulty="hard")
+    topic_a = topic_repo.create_topic(
+        subject_id=subject.id, name="Photosynthesis", difficulty="hard"
+    )
     topic_b = topic_repo.create_topic(subject_id=subject.id, name="Respiration", difficulty="hard")
     scheduler = _build_scheduler(session, date(2026, 4, 15))
 
     scheduler.create_first_revision(topic_a.id, scheduled_for=date(2026, 4, 15))
     scheduler.create_first_revision(topic_b.id, scheduled_for=date(2026, 4, 15))
-    assert [task.topic.name for task in scheduler.get_tasks_for_date(date(2026, 4, 15))] == ["Photosynthesis"]
+    assert [task.topic.name for task in scheduler.get_tasks_for_date(date(2026, 4, 15))] == [
+        "Photosynthesis"
+    ]
 
     session.merge(AppSetting(key="daily_time_minutes", value="120"))
     session.flush()
@@ -146,10 +166,14 @@ def test_rebalance_balances_same_day_load_across_two_to_three_subjects(session) 
     scheduler = _build_scheduler(session, date(2026, 4, 24))
 
     for index in range(7):
-        topic = topic_repo.create_topic(subject_id=networks.id, name=f"Networks {index + 1}", difficulty="medium")
+        topic = topic_repo.create_topic(
+            subject_id=networks.id, name=f"Networks {index + 1}", difficulty="medium"
+        )
         scheduler.create_first_revision(topic.id, scheduled_for=date(2026, 4, 24))
 
-    topic = topic_repo.create_topic(subject_id=mathematics.id, name="Discrete Mathematics", difficulty="medium")
+    topic = topic_repo.create_topic(
+        subject_id=mathematics.id, name="Discrete Mathematics", difficulty="medium"
+    )
     scheduler.create_first_revision(topic.id, scheduled_for=date(2026, 4, 24))
 
     scheduler.rebalance_schedule(start_date=date(2026, 4, 24))
@@ -175,7 +199,11 @@ def test_reschedule_after_miss_keeps_single_open_revision(session) -> None:
     rescheduled = scheduler.reschedule_after_miss(revision.id, reschedule_from=date(2026, 4, 11))
     session.commit()
 
-    open_revisions = session.query(Revision).filter(Revision.topic_id == topic.id, Revision.status == "open").all()
+    open_revisions = (
+        session.query(Revision)
+        .filter(Revision.topic_id == topic.id, Revision.status == "open")
+        .all()
+    )
 
     assert len(open_revisions) == 1
     assert open_revisions[0].id == rescheduled.id

@@ -5,7 +5,9 @@ def test_assistant_prompts_and_context_are_available(tmp_path) -> None:
     backend = StudyFlowBackend(tmp_path / "assistant_state.json")
 
     assert len(backend.assistantPrompts) == 4
-    assert {"dueToday", "overdue", "weakSubjects", "nextTopic"} <= set(backend.assistantContextSummary)
+    assert {"dueToday", "overdue", "weakSubjects", "nextTopic"} <= set(
+        backend.assistantContextSummary
+    )
     assert backend.assistantMessages[0]["role"] == "assistant"
 
 

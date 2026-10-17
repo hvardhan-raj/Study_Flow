@@ -60,7 +60,9 @@ class Subject(TimestampMixin, Base):
     exam_date: Mapped[date] = mapped_column(Date, nullable=True)
     archived: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
-    topics: Mapped[list["Topic"]] = relationship(back_populates="subject", cascade="all, delete-orphan")
+    topics: Mapped[list["Topic"]] = relationship(
+        back_populates="subject", cascade="all, delete-orphan"
+    )
     study_sessions: Mapped[list["StudySession"]] = relationship(back_populates="subject")
     tasks: Mapped[list["Task"]] = relationship(back_populates="subject")
     notifications: Mapped[list["Notification"]] = relationship(back_populates="subject")
@@ -70,7 +72,9 @@ class Topic(TimestampMixin, Base):
     __tablename__ = "topics"
     __table_args__ = (
         CheckConstraint("difficulty IN ('easy', 'medium', 'hard')", name="ck_topics_difficulty"),
-        CheckConstraint("status IN ('active', 'paused', 'completed', 'archived')", name="ck_topics_status"),
+        CheckConstraint(
+            "status IN ('active', 'paused', 'completed', 'archived')", name="ck_topics_status"
+        ),
         CheckConstraint("mastery_score >= 0", name="ck_topics_mastery_non_negative"),
         CheckConstraint("review_count >= 0", name="ck_topics_review_count_non_negative"),
         Index("ix_topics_subject_id", "subject_id"),
@@ -82,22 +86,36 @@ class Topic(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=True)
-    difficulty: Mapped[str] = mapped_column(String(16), nullable=False, default="medium", server_default="medium")
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", server_default="active")
+    difficulty: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="medium", server_default="medium"
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active"
+    )
     target_date: Mapped[date] = mapped_column(Date, nullable=True)
     exam_date_override: Mapped[date] = mapped_column(Date, nullable=True)
     estimated_minutes: Mapped[int] = mapped_column(Integer, nullable=True)
-    mastery_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
-    review_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    mastery_score: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0"
+    )
+    review_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     last_reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
     subject: Mapped["Subject"] = relationship(back_populates="topics")
-    revisions: Mapped[list["Revision"]] = relationship(back_populates="topic", cascade="all, delete-orphan")
+    revisions: Mapped[list["Revision"]] = relationship(
+        back_populates="topic", cascade="all, delete-orphan"
+    )
     study_sessions: Mapped[list["StudySession"]] = relationship(back_populates="topic")
-    performance_logs: Mapped[list["PerformanceLog"]] = relationship(back_populates="topic", cascade="all, delete-orphan")
+    performance_logs: Mapped[list["PerformanceLog"]] = relationship(
+        back_populates="topic", cascade="all, delete-orphan"
+    )
     tasks: Mapped[list["Task"]] = relationship(back_populates="topic")
     notifications: Mapped[list["Notification"]] = relationship(back_populates="topic")
 
@@ -105,17 +123,24 @@ class Topic(TimestampMixin, Base):
 class Revision(TimestampMixin, Base):
     __tablename__ = "revisions"
     __table_args__ = (
-        CheckConstraint("status IN ('open', 'completed', 'missed', 'cancelled')", name="ck_revisions_status"),
+        CheckConstraint(
+            "status IN ('open', 'completed', 'missed', 'cancelled')", name="ck_revisions_status"
+        ),
         CheckConstraint(
             "rating IS NULL OR rating IN ('again', 'hard', 'good', 'easy')",
             name="ck_revisions_rating",
         ),
-        CheckConstraint("interval_days IS NULL OR interval_days >= 0", name="ck_revisions_interval_days_non_negative"),
+        CheckConstraint(
+            "interval_days IS NULL OR interval_days >= 0",
+            name="ck_revisions_interval_days_non_negative",
+        ),
         CheckConstraint(
             "previous_interval_days IS NULL OR previous_interval_days >= 0",
             name="ck_revisions_previous_interval_days_non_negative",
         ),
-        CheckConstraint("stability IS NULL OR stability >= 0", name="ck_revisions_stability_non_negative"),
+        CheckConstraint(
+            "stability IS NULL OR stability >= 0", name="ck_revisions_stability_non_negative"
+        ),
         CheckConstraint("overdue_days >= 0", name="ck_revisions_overdue_days_non_negative"),
         Index("ix_revisions_topic_id", "topic_id"),
         Index("ix_revisions_due_at", "due_at"),
@@ -136,9 +161,13 @@ class Revision(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), nullable=False)
+    topic_id: Mapped[int] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE"), nullable=False
+    )
     due_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="open", server_default="open"
+    )
     scheduled_from_revision_id: Mapped[int] = mapped_column(
         ForeignKey("revisions.id", ondelete="SET NULL"),
         nullable=True,
@@ -149,7 +178,9 @@ class Revision(TimestampMixin, Base):
     previous_interval_days: Mapped[float] = mapped_column(Float, nullable=True)
     stability: Mapped[float] = mapped_column(Float, nullable=True)
     difficulty_adjustment: Mapped[float] = mapped_column(Float, nullable=True)
-    overdue_days: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
+    overdue_days: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0"
+    )
     notes: Mapped[str] = mapped_column(Text, nullable=True)
 
     topic: Mapped["Topic"] = relationship(back_populates="revisions")
@@ -159,19 +190,27 @@ class Revision(TimestampMixin, Base):
 class StudySession(TimestampMixin, Base):
     __tablename__ = "study_sessions"
     __table_args__ = (
-        CheckConstraint("ended_at IS NULL OR ended_at >= started_at", name="ck_study_sessions_time_order"),
+        CheckConstraint(
+            "ended_at IS NULL OR ended_at >= started_at", name="ck_study_sessions_time_order"
+        ),
         Index("ix_study_sessions_subject_id", "subject_id"),
         Index("ix_study_sessions_topic_id", "topic_id"),
         Index("ix_study_sessions_started_at", "started_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
-    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
+    subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True
+    )
+    topic_id: Mapped[int] = mapped_column(
+        ForeignKey("topics.id", ondelete="SET NULL"), nullable=True
+    )
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     ended_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=True)
-    session_type: Mapped[str] = mapped_column(String(16), nullable=False, default="study", server_default="study")
+    session_type: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="study", server_default="study"
+    )
     focus_score: Mapped[float] = mapped_column(Float, nullable=True)
     notes: Mapped[str] = mapped_column(Text, nullable=True)
 
@@ -188,8 +227,12 @@ class PerformanceLog(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), nullable=False)
-    logged_at: Mapped[datetime] = mapped_column(DateTime, nullable=True, server_default=func.current_timestamp())
+    topic_id: Mapped[int] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE"), nullable=False
+    )
+    logged_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=True, server_default=func.current_timestamp()
+    )
     source: Mapped[str] = mapped_column(String(32), nullable=True)
     score: Mapped[float] = mapped_column(Float, nullable=True)
     confidence: Mapped[float] = mapped_column(Float, nullable=True)
@@ -203,7 +246,9 @@ class Task(TimestampMixin, Base):
     __tablename__ = "tasks"
     __table_args__ = (
         CheckConstraint("priority IN ('low', 'medium', 'high')", name="ck_tasks_priority"),
-        CheckConstraint("status IN ('open', 'in_progress', 'done', 'cancelled')", name="ck_tasks_status"),
+        CheckConstraint(
+            "status IN ('open', 'in_progress', 'done', 'cancelled')", name="ck_tasks_status"
+        ),
         Index("ix_tasks_subject_id", "subject_id"),
         Index("ix_tasks_topic_id", "topic_id"),
         Index("ix_tasks_due_date", "due_date"),
@@ -211,12 +256,20 @@ class Task(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
-    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
+    subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True
+    )
+    topic_id: Mapped[int] = mapped_column(
+        ForeignKey("topics.id", ondelete="SET NULL"), nullable=True
+    )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=True)
-    priority: Mapped[str] = mapped_column(String(16), nullable=False, default="medium", server_default="medium")
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    priority: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="medium", server_default="medium"
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="open", server_default="open"
+    )
     due_date: Mapped[date] = mapped_column(Date, nullable=True)
     estimated_minutes: Mapped[int] = mapped_column(Integer, nullable=True)
     completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
@@ -237,12 +290,18 @@ class Notification(Base):
     type: Mapped[str] = mapped_column(String(32), nullable=True)
     title: Mapped[str] = mapped_column(Text, nullable=True)
     message: Mapped[str] = mapped_column(Text, nullable=True)
-    related_subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
-    related_topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
+    related_subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True
+    )
+    related_topic_id: Mapped[int] = mapped_column(
+        ForeignKey("topics.id", ondelete="SET NULL"), nullable=True
+    )
     scheduled_for: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     delivered_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     read_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    is_dismissed: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    is_dismissed: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,

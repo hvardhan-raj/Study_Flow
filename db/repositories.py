@@ -93,7 +93,10 @@ class RevisionRepository:
     def list_due_revisions(self, due_on_or_before: date) -> list[Revision]:
         stmt = (
             select(Revision)
-            .where(Revision.status == "open", func.date(Revision.due_at) <= due_on_or_before.isoformat())
+            .where(
+                Revision.status == "open",
+                func.date(Revision.due_at) <= due_on_or_before.isoformat(),
+            )
             .order_by(Revision.due_at)
         )
         return list(self.session.scalars(stmt))

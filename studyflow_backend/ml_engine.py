@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import json
 import logging
-import pickle
 import threading
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
+import joblib
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
@@ -18,9 +20,13 @@ from time_utils import local_now
 logger = logging.getLogger(__name__)
 
 try:
+    import sklearn
     from sklearn.ensemble import RandomForestClassifier
+    from sklearn.exceptions import InconsistentVersionWarning
 except Exception:  # pragma: no cover - optional dependency fallback
+    sklearn = None
     RandomForestClassifier = None
+    InconsistentVersionWarning = Warning
 
 
 RATING_TO_CLASS = {
@@ -114,6 +120,7 @@ class LearningMLEngine:
         session_factory: sessionmaker,
         today_provider: Callable[[], date],
         model_path: Path,
+        seed_model_path: Path | None = None,
         on_update: Callable[[], None] | None = None,
         retrain_threshold: int = 20,
         refresh_interval_seconds: int = 120,
@@ -121,6 +128,7 @@ class LearningMLEngine:
         self._session_factory = session_factory
         self._today_provider = today_provider
         self._model_path = model_path
+        self._seed_model_path = seed_model_path
         self._on_update = on_update
         self._retrain_threshold = retrain_threshold
         self._refresh_interval_seconds = max(120, refresh_interval_seconds)
@@ -136,11 +144,17 @@ class LearningMLEngine:
         self._thread: threading.Thread | None = None
         self._load_model()
 
+    @property
+    def _meta_path(self) -> Path:
+        return self._model_path.with_suffix(".meta.json")
+
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._worker_loop, name="learning-ml-engine", daemon=True)
+        self._thread = threading.Thread(
+            target=self._worker_loop, name="learning-ml-engine", daemon=True
+        )
         self._thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
@@ -197,20 +211,74 @@ class LearningMLEngine:
             logger.exception("Failed to notify intelligence update")
 
     def _load_model(self) -> None:
-        if not self._model_path.exists():
-            return
+        target_path = self._model_path
+        if not target_path.exists():
+            if self._seed_model_path and self._seed_model_path.exists():
+                target_path = self._seed_model_path
+            else:
+                legacy_path = self._model_path.with_suffix(".pkl")
+                if legacy_path.exists():
+                    target_path = legacy_path
+                else:
+                    return
+
+        # Check version metadata if present
+        meta_file = target_path.with_suffix(".meta.json")
+        current_version = getattr(sklearn, "__version__", None) if sklearn is not None else None
+        if meta_file.exists() and current_version:
+            try:
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                saved_version = meta.get("sklearn_version")
+                if saved_version and saved_version != current_version:
+                    logger.warning(
+                        "Learning model scikit-learn version (%s) does not match runtime (%s); retraining on version mismatch",
+                        saved_version,
+                        current_version,
+                    )
+                    self._model = None
+                    self._model_ready = False
+                    self._train_requested = True
+                    return
+            except Exception:
+                logger.warning("Failed to parse learning model metadata from %s", meta_file)
+
         try:
-            self._model = pickle.loads(self._model_path.read_bytes())
+            import warnings
+
+            with warnings.catch_warnings(record=True) as caught_warnings:
+                warnings.simplefilter("always")
+                try:
+                    loaded = joblib.load(target_path)
+                except Exception:
+                    import pickle
+
+                    loaded = pickle.loads(target_path.read_bytes())
+                for w in caught_warnings:
+                    if issubclass(w.category, InconsistentVersionWarning | UserWarning):
+                        logger.warning(
+                            "Inconsistent model version warning when loading %s: %s; scheduling retrain",
+                            target_path,
+                            w.message,
+                        )
+                        self._model = None
+                        self._model_ready = False
+                        self._train_requested = True
+                        return
+
+            self._model = loaded
             self._model_ready = self._model is not None
         except Exception:
-            logger.exception("Failed to load learning model from %s", self._model_path)
+            logger.warning("Failed to load learning model from %s; scheduling retrain", target_path)
             self._model = None
             self._model_ready = False
+            self._train_requested = True
 
     def train_model(self) -> bool:
         rows, targets = self._build_training_dataset()
         if RandomForestClassifier is None:
-            logger.warning("scikit-learn unavailable; learning intelligence will use heuristic mode")
+            logger.warning(
+                "scikit-learn unavailable; learning intelligence will use heuristic mode"
+            )
             self._model = None
             self._model_ready = False
             return False
@@ -229,7 +297,23 @@ class LearningMLEngine:
         self._model = model
         self._model_ready = True
         self._model_path.parent.mkdir(parents=True, exist_ok=True)
-        self._model_path.write_bytes(pickle.dumps(model))
+        joblib.dump(model, self._model_path)
+        try:
+            current_version = (
+                getattr(sklearn, "__version__", "unknown") if sklearn is not None else "unknown"
+            )
+            self._meta_path.write_text(
+                json.dumps(
+                    {
+                        "sklearn_version": current_version,
+                        "timestamp": local_now().isoformat(),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except Exception:
+            logger.warning("Failed to write model metadata to %s", self._meta_path)
         return True
 
     def compute_all_topic_predictions(self) -> dict[str, Any]:
@@ -240,7 +324,9 @@ class LearningMLEngine:
             retention_score = round(max(0.0, min(1.0, 1.0 - forgetting_risk)) * 100.0, 1)
             success_rate_pct = round(max(0.0, min(1.0, feature.success_rate)) * 100.0, 1)
             error_frequency = round(100.0 - success_rate_pct, 1)
-            retention_window_days = round(max(feature.interval_days - feature.days_since_last_review, 0.0), 1)
+            retention_window_days = round(
+                max(feature.interval_days - feature.days_since_last_review, 0.0), 1
+            )
             projected_gain = round(
                 max(
                     4.0,
@@ -253,14 +339,18 @@ class LearningMLEngine:
                 ),
                 1,
             )
-            priority_score = round(
-                feature.overdue_days + feature.difficulty_encoded,
-                3,
-            ) if not self._model_ready else round(
-                (forgetting_risk * 0.6)
-                + (feature.difficulty_encoded * 0.2)
-                + (feature.overdue_days * 0.2),
-                3,
+            priority_score = (
+                round(
+                    feature.overdue_days + feature.difficulty_encoded,
+                    3,
+                )
+                if not self._model_ready
+                else round(
+                    (forgetting_risk * 0.6)
+                    + (feature.difficulty_encoded * 0.2)
+                    + (feature.overdue_days * 0.2),
+                    3,
+                )
             )
             topic_predictions[feature.topic_id] = {
                 "topic_id": feature.topic_id,
@@ -298,18 +388,30 @@ class LearningMLEngine:
         )
         ordered_by_weakness = sorted(
             topic_predictions.values(),
-            key=lambda row: (row["stability"], row["retention_score"], -row["forgetting_risk"], row["topic"].lower()),
+            key=lambda row: (
+                row["stability"],
+                row["retention_score"],
+                -row["forgetting_risk"],
+                row["topic"].lower(),
+            ),
         )
-        retention_score = round(
-            sum(row["retention_score"] for row in topic_predictions.values()) / len(topic_predictions),
-            1,
-        ) if topic_predictions else 0.0
+        retention_score = (
+            round(
+                sum(row["retention_score"] for row in topic_predictions.values())
+                / len(topic_predictions),
+                1,
+            )
+            if topic_predictions
+            else 0.0
+        )
         prediction_accuracy = self._estimate_model_accuracy()
         weak_topics_count = len(
             [
                 row
                 for row in topic_predictions.values()
-                if row["quiz_accuracy"] < 65.0 or row["retention_score"] < 60.0 or row["practice_need"] == "High"
+                if row["quiz_accuracy"] < 65.0
+                or row["retention_score"] < 60.0
+                or row["practice_need"] == "High"
             ]
         )
         forgetting_soon_count = len(
@@ -320,10 +422,14 @@ class LearningMLEngine:
             ]
         )
         best_topic = ordered_by_priority[0] if ordered_by_priority else None
-        predicted_improvement = round(
-            sum(row["projected_gain"] for row in ordered_by_priority[:3]),
-            1,
-        ) if ordered_by_priority else 0.0
+        predicted_improvement = (
+            round(
+                sum(row["projected_gain"] for row in ordered_by_priority[:3]),
+                1,
+            )
+            if ordered_by_priority
+            else 0.0
+        )
 
         dashboard = {
             "model_ready": self._model_ready,
@@ -335,7 +441,9 @@ class LearningMLEngine:
                 "prediction_accuracy": prediction_accuracy,
                 "topics_forgetting_soon": forgetting_soon_count,
                 "best_topic": best_topic["topic"] if best_topic else "",
-                "suggested_revision_minutes": int(best_topic["estimated_minutes"]) if best_topic else 0,
+                "suggested_revision_minutes": int(best_topic["estimated_minutes"])
+                if best_topic
+                else 0,
                 "predicted_improvement": predicted_improvement,
             },
             "high_risk_topics": ordered_by_risk[:5],
@@ -347,7 +455,9 @@ class LearningMLEngine:
         self._notify()
         return dashboard
 
-    def _practice_need_label(self, *, forgetting_risk: float, success_rate: float, stability: float) -> str:
+    def _practice_need_label(
+        self, *, forgetting_risk: float, success_rate: float, stability: float
+    ) -> str:
         if forgetting_risk >= 0.7 or success_rate <= 0.45 or stability <= 1.5:
             return "High"
         if forgetting_risk >= 0.45 or success_rate <= 0.7 or stability <= 3.0:
@@ -368,7 +478,11 @@ class LearningMLEngine:
             logger.exception("Failed to estimate learning model accuracy")
             return 0.0
 
-        matches = sum(1 for predicted, actual in zip(predictions, targets, strict=False) if int(predicted) == int(actual))
+        matches = sum(
+            1
+            for predicted, actual in zip(predictions, targets, strict=False)
+            if int(predicted) == int(actual)
+        )
         return round((matches / len(targets)) * 100.0, 1) if targets else 0.0
 
     def _predict_forgetting_risk(self, feature: TopicFeatures) -> float:
@@ -383,12 +497,27 @@ class LearningMLEngine:
         return self._heuristic_forgetting_risk(feature)
 
     def _heuristic_forgetting_risk(self, feature: TopicFeatures) -> float:
-        days_component = min(feature.days_since_last_review / max(feature.interval_days, 1.0), 2.0) * 0.35
+        days_component = (
+            min(feature.days_since_last_review / max(feature.interval_days, 1.0), 2.0) * 0.35
+        )
         overdue_component = min(feature.overdue_days / 7.0, 1.0) * 0.25
         difficulty_component = (feature.difficulty_encoded / 3.0) * 0.15
         history_component = max(0.0, 1.0 - feature.success_rate) * 0.15
         rating_component = min(feature.average_past_rating, 1.0) * 0.10
-        return round(max(0.0, min(1.0, days_component + overdue_component + difficulty_component + history_component + rating_component)), 3)
+        return round(
+            max(
+                0.0,
+                min(
+                    1.0,
+                    days_component
+                    + overdue_component
+                    + difficulty_component
+                    + history_component
+                    + rating_component,
+                ),
+            ),
+            3,
+        )
 
     def _build_training_dataset(self) -> tuple[list[list[float]], list[int]]:
         rows: list[list[float]] = []
@@ -409,20 +538,31 @@ class LearningMLEngine:
             topic = revision.topic
             topic_id = int(topic.id)
             prior_revisions = revision_history[topic_id]
-            past_targets = [RATING_TO_RISK.get(str(item.rating or "").lower(), 0.5) for item in prior_revisions if item.rating]
+            past_targets = [
+                RATING_TO_RISK.get(str(item.rating or "").lower(), 0.5)
+                for item in prior_revisions
+                if item.rating
+            ]
             past_logs = [
-                log for log in logs_by_topic.get(topic_id, [])
-                if log.logged_at is not None and revision.completed_at is not None and log.logged_at < revision.completed_at
+                log
+                for log in logs_by_topic.get(topic_id, [])
+                if log.logged_at is not None
+                and revision.completed_at is not None
+                and log.logged_at < revision.completed_at
             ]
             average_past_rating = sum(past_targets) / len(past_targets) if past_targets else 0.5
             success_rate = (
-                sum(1 for log in past_logs if str(log.outcome or "").lower() in {"good", "easy"}) / len(past_logs)
-                if past_logs else 0.0
+                sum(1 for log in past_logs if str(log.outcome or "").lower() in {"good", "easy"})
+                / len(past_logs)
+                if past_logs
+                else 0.0
             )
             previous_review = prior_revisions[-1] if prior_revisions else None
             days_since_last_review = (
                 max((revision.completed_at.date() - previous_review.completed_at.date()).days, 0)
-                if previous_review is not None and previous_review.completed_at is not None and revision.completed_at is not None
+                if previous_review is not None
+                and previous_review.completed_at is not None
+                and revision.completed_at is not None
                 else 0.0
             )
             difficulty_key = str(topic.difficulty or "medium").lower()
@@ -438,7 +578,9 @@ class LearningMLEngine:
                 review_count=float(len(prior_revisions)),
                 average_past_rating=float(average_past_rating),
                 success_rate=float(success_rate),
-                estimated_minutes=float(topic.estimated_minutes or DEFAULT_ESTIMATED_MINUTES.get(difficulty_key, 30)),
+                estimated_minutes=float(
+                    topic.estimated_minutes or DEFAULT_ESTIMATED_MINUTES.get(difficulty_key, 30)
+                ),
                 stability=float(revision.stability or 0.0),
             )
             target = RATING_TO_CLASS.get(str(revision.rating or "").lower())
@@ -460,7 +602,9 @@ class LearningMLEngine:
                     )
                     .where(Topic.status != "archived")
                     .order_by(Topic.name)
-                ).unique().scalars()
+                )
+                .unique()
+                .scalars()
             )
 
         current_day = self._today_provider()
@@ -469,39 +613,72 @@ class LearningMLEngine:
             difficulty_key = str(topic.difficulty or "medium").lower()
             open_revisions = [revision for revision in topic.revisions if revision.status == "open"]
             completed_revisions = [
-                revision for revision in topic.revisions
+                revision
+                for revision in topic.revisions
                 if revision.status == "completed" and revision.completed_at is not None
             ]
-            open_revision = min(open_revisions, key=lambda item: (item.due_at, item.id)) if open_revisions else None
-            latest_completed = max(completed_revisions, key=lambda item: (item.completed_at, item.id)) if completed_revisions else None
+            open_revision = (
+                min(open_revisions, key=lambda item: (item.due_at, item.id))
+                if open_revisions
+                else None
+            )
+            latest_completed = (
+                max(completed_revisions, key=lambda item: (item.completed_at, item.id))
+                if completed_revisions
+                else None
+            )
             logs = sorted(
                 [log for log in topic.performance_logs if log.logged_at is not None],
                 key=lambda item: (item.logged_at, item.id),
             )
-            past_targets = [RATING_TO_RISK.get(str(log.outcome or "").lower(), 0.5) for log in logs if log.outcome]
+            past_targets = [
+                RATING_TO_RISK.get(str(log.outcome or "").lower(), 0.5)
+                for log in logs
+                if log.outcome
+            ]
             average_past_rating = sum(past_targets) / len(past_targets) if past_targets else 0.5
-            success_rate = sum(1 for log in logs if str(log.outcome or "").lower() in {"good", "easy"}) / len(logs) if logs else 0.0
-            last_reviewed_at = latest_completed.completed_at if latest_completed is not None else topic.last_reviewed_at
+            success_rate = (
+                sum(1 for log in logs if str(log.outcome or "").lower() in {"good", "easy"})
+                / len(logs)
+                if logs
+                else 0.0
+            )
+            last_reviewed_at = (
+                latest_completed.completed_at
+                if latest_completed is not None
+                else topic.last_reviewed_at
+            )
             days_since_last_review = (
                 max((current_day - last_reviewed_at.date()).days, 0)
-                if last_reviewed_at is not None else float(max(topic.review_count or 0, 1))
+                if last_reviewed_at is not None
+                else float(max(topic.review_count or 0, 1))
             )
             due_at = open_revision.due_at if open_revision is not None else None
             overdue_days = max((current_day - due_at.date()).days, 0) if due_at is not None else 0.0
             interval_days = (
                 float(open_revision.interval_days)
                 if open_revision is not None and open_revision.interval_days is not None
-                else float(latest_completed.interval_days if latest_completed is not None and latest_completed.interval_days is not None else 0.0)
+                else float(
+                    latest_completed.interval_days
+                    if latest_completed is not None and latest_completed.interval_days is not None
+                    else 0.0
+                )
             )
             previous_interval_days = (
                 float(open_revision.previous_interval_days)
                 if open_revision is not None and open_revision.previous_interval_days is not None
-                else float(latest_completed.previous_interval_days if latest_completed is not None and latest_completed.previous_interval_days is not None else 0.0)
+                else float(
+                    latest_completed.previous_interval_days
+                    if latest_completed is not None
+                    and latest_completed.previous_interval_days is not None
+                    else 0.0
+                )
             )
             stability = float(
                 open_revision.stability
                 if open_revision is not None and open_revision.stability is not None
-                else latest_completed.stability if latest_completed is not None and latest_completed.stability is not None
+                else latest_completed.stability
+                if latest_completed is not None and latest_completed.stability is not None
                 else 0.0
             )
             rows.append(
@@ -517,14 +694,22 @@ class LearningMLEngine:
                     review_count=float(topic.review_count or 0),
                     average_past_rating=float(average_past_rating),
                     success_rate=float(success_rate),
-                    estimated_minutes=float(topic.estimated_minutes or DEFAULT_ESTIMATED_MINUTES.get(difficulty_key, 30)),
+                    estimated_minutes=float(
+                        topic.estimated_minutes or DEFAULT_ESTIMATED_MINUTES.get(difficulty_key, 30)
+                    ),
                     stability=stability,
                 )
             )
         return rows
 
     def _logs_by_topic(self, session: Session) -> dict[int, list[PerformanceLog]]:
-        logs = list(session.scalars(select(PerformanceLog).order_by(PerformanceLog.topic_id, PerformanceLog.logged_at, PerformanceLog.id)))
+        logs = list(
+            session.scalars(
+                select(PerformanceLog).order_by(
+                    PerformanceLog.topic_id, PerformanceLog.logged_at, PerformanceLog.id
+                )
+            )
+        )
         grouped: dict[int, list[PerformanceLog]] = defaultdict(list)
         for log in logs:
             grouped[int(log.topic_id)].append(log)

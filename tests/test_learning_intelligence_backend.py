@@ -21,7 +21,16 @@ def test_learning_intelligence_dashboard_uses_cached_snapshot(tmp_path) -> None:
     try:
         dashboard = _wait_for_dashboard(backend)
 
-        assert {"model_ready", "engine_mode", "last_updated", "retention_score", "high_risk_topics", "recommended_topics", "weak_topics", "topic_predictions"} <= set(dashboard)
+        assert {
+            "model_ready",
+            "engine_mode",
+            "last_updated",
+            "retention_score",
+            "high_risk_topics",
+            "recommended_topics",
+            "weak_topics",
+            "topic_predictions",
+        } <= set(dashboard)
         assert isinstance(dashboard["high_risk_topics"], list)
         assert isinstance(dashboard["recommended_topics"], list)
         assert isinstance(dashboard["weak_topics"], list)
@@ -84,13 +93,17 @@ def test_complete_revision_updates_mastery_once(tmp_path) -> None:
     backend = StudyFlowBackend(tmp_path / "analytics_state.json")
     try:
         with backend._db() as db:
-            revision = db.query(Revision).filter(Revision.status == "open").order_by(Revision.id).first()
+            revision = (
+                db.query(Revision).filter(Revision.status == "open").order_by(Revision.id).first()
+            )
             assert revision is not None
             topic = db.get(Topic, revision.topic_id)
             assert topic is not None
             before_score = float(topic.mastery_score or 0.0)
             due_at = revision.due_at
-            expected_score = backend._scheduler(db)._next_mastery_score(before_score, ConfidenceRating.EASY, 0)
+            expected_score = backend._scheduler(db)._next_mastery_score(
+                before_score, ConfidenceRating.EASY, 0
+            )
 
         backend.completeRevision(str(revision.id), 4)
 

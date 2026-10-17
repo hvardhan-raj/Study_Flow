@@ -15,7 +15,11 @@ from models import AppSetting, Revision, Subject, Topic
 def test_init_database_seeds_settings_and_sqlite_artifacts(tmp_path) -> None:
     database_path = tmp_path / "schema.sqlite3"
 
-    engine = create_engine(f"sqlite+pysqlite:///{database_path}", future=True, connect_args={"check_same_thread": False})
+    engine = create_engine(
+        f"sqlite+pysqlite:///{database_path}",
+        future=True,
+        connect_args={"check_same_thread": False},
+    )
     init_database(engine_override=engine, database_path=database_path)
 
     with Session(engine) as session:
@@ -28,15 +32,23 @@ def test_init_database_seeds_settings_and_sqlite_artifacts(tmp_path) -> None:
         }
         index_names = {
             row[0]
-            for row in session.execute(
-                text("SELECT name FROM sqlite_master WHERE type = 'index'")
-            )
+            for row in session.execute(text("SELECT name FROM sqlite_master WHERE type = 'index'"))
         }
 
     assert settings["daily_time_minutes"] == "120"
     assert settings["preferred_time"] == "18:00"
-    assert {"trg_topics_updated_at", "trg_revisions_updated_at", "trg_sessions_updated_at", "trg_tasks_updated_at", "trg_settings_updated_at"} <= trigger_names
-    assert {"idx_revisions_due_status", "idx_revisions_topic_status", "idx_revisions_open_due"} <= index_names
+    assert {
+        "trg_topics_updated_at",
+        "trg_revisions_updated_at",
+        "trg_sessions_updated_at",
+        "trg_tasks_updated_at",
+        "trg_settings_updated_at",
+    } <= trigger_names
+    assert {
+        "idx_revisions_due_status",
+        "idx_revisions_topic_status",
+        "idx_revisions_open_due",
+    } <= index_names
 
 
 def test_updated_at_trigger_updates_timestamp_for_topic() -> None:
@@ -59,7 +71,10 @@ def test_updated_at_trigger_updates_timestamp_for_topic() -> None:
         session.commit()
 
         original_updated_at = topic.updated_at
-        session.execute(text("UPDATE topics SET name = :name WHERE id = :id"), {"name": "Limits and Continuity", "id": topic.id})
+        session.execute(
+            text("UPDATE topics SET name = :name WHERE id = :id"),
+            {"name": "Limits and Continuity", "id": topic.id},
+        )
         session.commit()
         session.refresh(topic)
 

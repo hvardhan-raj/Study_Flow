@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import math
-import pickle
 import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
+import joblib
+
 from config.settings import settings
 from models import DifficultyLevel
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.6
-DEFAULT_MODEL_FILENAME = "difficulty_model.pkl"
+DEFAULT_MODEL_FILENAME = "difficulty_model.joblib"
 TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 
 
@@ -93,7 +94,9 @@ class NLPService:
         probabilities = model.predict_proba([topic_name])[0]
         predicted_label, confidence = max(probabilities.items(), key=lambda item: item[1])
         if confidence < self.confidence_threshold:
-            return DifficultyPrediction(difficulty=None, confidence=confidence, source="low_confidence")
+            return DifficultyPrediction(
+                difficulty=None, confidence=confidence, source="low_confidence"
+            )
 
         return DifficultyPrediction(
             difficulty=DifficultyLevel(predicted_label),
@@ -122,16 +125,28 @@ class NLPService:
 
     def save_model(self, model: NaiveBayesDifficultyModel) -> Path:
         self.model_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.model_path.open("wb") as file_handle:
-            pickle.dump(model, file_handle)
+        joblib.dump(model, self.model_path)
         self._model = model
         return self.model_path
 
     def _load_model(self) -> NaiveBayesDifficultyModel | None:
         if self._model is not None:
             return self._model
-        if not self.model_path.exists():
-            return None
-        with self.model_path.open("rb") as file_handle:
-            self._model = pickle.load(file_handle)
+        target_path = self.model_path
+        if not target_path.exists():
+            pkl_fallback = target_path.with_suffix(".pkl")
+            if pkl_fallback.exists():
+                target_path = pkl_fallback
+            else:
+                return None
+        try:
+            self._model = joblib.load(target_path)
+        except Exception:
+            try:
+                import pickle
+
+                with target_path.open("rb") as file_handle:
+                    self._model = pickle.load(file_handle)
+            except Exception:
+                return None
         return self._model

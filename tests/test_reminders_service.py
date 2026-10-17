@@ -60,7 +60,10 @@ def test_revision_calendar_export_contains_pending_events(tmp_path) -> None:
 
 
 def test_reminder_scheduler_computes_next_daily_run() -> None:
-    scheduler = ReminderScheduler(lambda: None, ReminderPreferences(notification_time=datetime.strptime("08:00", "%H:%M").time()))
+    scheduler = ReminderScheduler(
+        lambda: None,
+        ReminderPreferences(notification_time=datetime.strptime("08:00", "%H:%M").time()),
+    )
 
     next_run = scheduler.next_run_at(datetime(2026, 4, 14, 9, 0))
 

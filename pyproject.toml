@@ -18,5 +18,5 @@ target-version = "py313"
 exclude = ["alembic/versions", "scratch_test.py"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B"]
+select = ["E", "F", "I", "B", "UP", "SIM"]
 ignore = ["E501"]

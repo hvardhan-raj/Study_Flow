@@ -20,3 +20,10 @@ release/
 .DS_Store
 Thumbs.db
 .env
+*.sqlite3-wal
+*.sqlite3-shm
+tmp_state.json
+studyflow_data.json
+data/
+*.pkl
+*.joblib

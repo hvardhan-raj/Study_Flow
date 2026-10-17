@@ -33,12 +33,29 @@ class DesktopNotifier:
             notification = None
 
         if notification is not None:
-            notification.notify(title=title, message=message, app_name=self.app_name, timeout=8)
-            return True
+            try:
+                notification.notify(title=title, message=message, app_name=self.app_name, timeout=8)
+                return True
+            except Exception:
+                pass
 
         if sys.platform == "win32":
             return self._notify_windows_balloon(title, message)
+        if sys.platform.startswith("linux"):
+            return self._notify_linux(title, message)
         return False
+
+    def _notify_linux(self, title: str, message: str) -> bool:
+        try:
+            completed = subprocess.run(
+                ["notify-send", "-a", self.app_name, title, message],
+                check=False,
+                capture_output=True,
+                timeout=5,
+            )
+            return completed.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
 
     def _notify_windows_balloon(self, title: str, message: str) -> bool:
         script = f"""
@@ -106,7 +123,9 @@ class ReminderScheduler(QObject):
     def next_run_at(self, now: datetime | None = None) -> datetime:
         current = now or local_now()
         preferences = self._preferences()
-        run_at = datetime.combine(current.date(), preferences.notification_time, tzinfo=current.tzinfo)
+        run_at = datetime.combine(
+            current.date(), preferences.notification_time, tzinfo=current.tzinfo
+        )
         if run_at <= current:
             run_at += timedelta(days=1)
         return run_at
@@ -146,7 +165,9 @@ def build_morning_summary(
     }
 
 
-def build_exam_warnings(topics: list[dict[str, Any]], today: date, warning_days: int = 14) -> list[dict[str, Any]]:
+def build_exam_warnings(
+    topics: list[dict[str, Any]], today: date, warning_days: int = 14
+) -> list[dict[str, Any]]:
     warnings = []
     for topic in topics:
         raw_exam_date = topic.get("exam_date") or topic.get("examDate")
@@ -169,7 +190,9 @@ def build_exam_warnings(topics: list[dict[str, Any]], today: date, warning_days:
     return warnings
 
 
-def write_revision_calendar(tasks: list[dict[str, Any]], output_path: Path, now: datetime | None = None) -> Path:
+def write_revision_calendar(
+    tasks: list[dict[str, Any]], output_path: Path, now: datetime | None = None
+) -> Path:
     timestamp = (now or naive_local_now()).strftime("%Y%m%dT%H%M%S")
     lines = [
         "BEGIN:VCALENDAR",

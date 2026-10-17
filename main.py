@@ -66,10 +66,17 @@ def main() -> int:
         app.setWindowIcon(QIcon(str(icon_path)))
     store_path = resolve_store_path(runtime_dir)
     store_path.parent.mkdir(parents=True, exist_ok=True)
-    backend = StudyFlowBackend(store_path)
+    is_demo = "--demo" in sys.argv or os.getenv("STUDYFLOW_DEMO", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    backend = StudyFlowBackend(store_path, seed_demo=is_demo)
     navigation = NavigationController()
     reminder_scheduler = ReminderScheduler(preferences_provider=backend._reminder_preferences_model)
-    reminder_scheduler.jobRequested.connect(backend.runReminderCheck, Qt.ConnectionType.QueuedConnection)
+    reminder_scheduler.jobRequested.connect(
+        backend.runReminderCheck, Qt.ConnectionType.QueuedConnection
+    )
     reminder_scheduler.start()
     app.aboutToQuit.connect(reminder_scheduler.stop)
     app.aboutToQuit.connect(backend.shutdown)
@@ -81,6 +88,18 @@ def main() -> int:
     )
     engine.rootContext().setContextProperty("backend", backend)
     engine.rootContext().setContextProperty("navigation", navigation)
+    engine.rootContext().setContextProperty("assistantController", backend.assistant)
+    engine.rootContext().setContextProperty(
+        "notificationsController", backend.notificationsController
+    )
+    engine.rootContext().setContextProperty("settingsController", backend.settingsController)
+    engine.rootContext().setContextProperty("curriculumController", backend.curriculumController)
+    engine.rootContext().setContextProperty("calendarController", backend.calendarController)
+    engine.rootContext().setContextProperty(
+        "intelligenceController", backend.intelligenceController
+    )
+    engine.rootContext().setContextProperty("sessionController", backend.sessionController)
+    engine.rootContext().setContextProperty("taskController", backend.taskController)
     engine.addImportPath(str(runtime_dir))
     engine.load(str(runtime_dir / "Main.qml"))
     logger.info("Application startup completed")

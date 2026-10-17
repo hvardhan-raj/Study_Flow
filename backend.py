@@ -1,4 +1,3 @@
 from studyflow_backend import StudyFlowBackend
 
-__all__ = ['StudyFlowBackend']
-
+__all__ = ["StudyFlowBackend"]

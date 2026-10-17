@@ -15,7 +15,9 @@ def test_topic_and_revision_crud_flow(session) -> None:
     revision_repo = RevisionRepository(session)
 
     subject = topic_repo.create_subject("Mathematics")
-    topic = topic_repo.create_topic(subject_id=subject.id, name="Calculus Limits", difficulty="hard")
+    topic = topic_repo.create_topic(
+        subject_id=subject.id, name="Calculus Limits", difficulty="hard"
+    )
     revision = revision_repo.create_revision(topic_id=topic.id, scheduled_date=date(2026, 4, 10))
     session.commit()
 
